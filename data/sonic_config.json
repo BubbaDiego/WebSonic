@@ -1,0 +1,41 @@
+{
+    "system_config": {
+        "sonic_monitor_loop_time": 60,
+        "newspaper_report_time": 1300,
+        "price_monitor_enabled": true,
+        "alert_monitor_enabled": false,
+        "last_price_update_time": "2024-11-09 07:13:09 AM",
+        "num_price_sources": 2,
+        "logging": {
+            "enabled": true,
+            "log_file": "THE_SHIT_LOG.log",
+            "level": "CRITICAL",
+            "console_output": true
+        }
+    },
+    "api_config": {
+        "coinbase_api": "ENABLE",
+        "coingecko_api": "ENABLE",
+        "coinmarketcap_api": "ENABLE",
+        "kucoin_api": "ENABLE"
+    },
+    "notification_config": {
+        "email": {
+            "smtp_server": "smtp.gmail.com",
+            "smtp_port": 587,
+            "smtp_user": "bubba.diego@gmail.com",
+            "smtp_password": "pzix taan afbe igxb",
+            "recipient_email": "bubba.diego@gmail.com"
+        },
+        "sms": {
+            "carrier_gateway": "txt.att.net",
+            "recipient_number": "6199804758"
+        }
+    },
+    "google_drive_config": {
+        "credentials_path": "path/to/credentials.json",
+        "token_path": "path/to/token.json"
+    },
+    "price_config": {},
+    "alert_config": {}
+}
