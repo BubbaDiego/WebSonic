@@ -21,7 +21,7 @@ from rich.console import Console
 import logging
 import subprocess
 from environment_variables import load_env_variables
-from utils.calc_services import CalcServices
+from calc_services import CalcServices
 
 
 ## Initialize Rich console and logger

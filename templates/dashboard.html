@@ -92,8 +92,8 @@
                             <td style="background-color: {{ position.value_color }}">{{ position.value }}</td>
                             <td style="background-color: {{ position.size_color }}">{{ position.size }}</td>
                             <td style="background-color: {{ position.leverage_color }}">{{ "%.2f"|format(position.leverage) }}</td>
-                            <td style="background-color: {{ position.travel_percent_color }}">{{ position.travel_percent }}</td>
-                            <td style="background-color: {{ position.heat_index_color }}">{{ position.heat_index }}</td>
+                            <td style="background-color: {{ position.travel_percent_color }}">{{ "%.2f"|format(position.travel_percent or 0) }}</td>
+                            <td style="background-color: {{ position.heat_index_color }}">{{ "%.2f"|format(position.heat_index or 0) }}</td>
                             <td>
                                 <form method="POST" action="/delete-position/{{ position.id }}" style="display: inline;">
                                     <button type="submit" class="btn btn-danger btn-sm">Delete</button>
@@ -105,7 +105,7 @@
                 </table>
 
                 <!-- Drag and Drop JSON Upload -->
-                <h3 class="mt-4">Import Positions (Drag & Drop JSON)</h3>
+                <h3 class="mt-4">Import Positions ⬇️</h3>
                 <div id="drop-area">
                     <p>Drag and drop a JSON file here, or click to select a file</p>
                     <input type="file" id="file-input" class="form-control" accept=".json" style="display: none;">
