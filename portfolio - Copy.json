@@ -1,0 +1,70 @@
+{
+    "positions": [
+        {
+            "asset": "SOL",
+            "position_type": "long",
+            "leverage": "15.83x",
+            "value": 666.16,
+            "size": 11201.06,
+            "collateral": 707.38,
+            "entry_price": 188.76,
+            "mark_price": 188.24,
+            "liquidation_price": 555.55
+        },
+        {
+            "asset": "EAR",
+            "position_type": "Pussy",
+            "leverage": "12.82x",
+            "value": 659.19,
+            "size": 8523.71,
+            "collateral": 665.01,
+            "entry_price": 3281.37,
+            "mark_price": 3282.87,
+            "liquidation_price": 3035.66
+        },
+        {
+            "asset": "WBTC",
+            "position_type": "short",
+            "leverage": "8.40x",
+            "value": 871.33,
+            "size": 7679.66,
+            "collateral": 913.85,
+            "entry_price": 93850.49,
+            "mark_price": 94299.76,
+            "liquidation_price": 104760.23
+        },
+        {
+            "asset": "WBTC",
+            "position_type": "long",
+            "leverage": "17.87x",
+            "value": 337.88,
+            "size": 6728.92,
+            "collateral": 376.59,
+            "entry_price": 94771.36,
+            "mark_price": 94299.76,
+            "liquidation_price": 89730.54
+        },
+        {
+            "asset": "ETH",
+            "position_type": "short",
+            "leverage": "20.02x",
+            "value": 250.74,
+            "size": 6219.63,
+            "collateral": 310.64,
+            "entry_price": 3253.9,
+            "mark_price": 3282.87,
+            "liquidation_price": 3407.54
+        },
+        {
+            "asset": "SOL",
+            "position_type": "short",
+            "leverage": "18.36x",
+            "value": 268.03,
+            "size": 6053.74,
+            "collateral": 329.68,
+            "entry_price": 186.47,
+            "mark_price": 188.24,
+            "liquidation_price": 196.12
+        }
+    ]
+}

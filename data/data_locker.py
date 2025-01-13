@@ -18,9 +18,9 @@ from datetime import datetime, timedelta
 from threading import local
 from enum import Enum
 from rich.console import Console
-from utils.value_manager import ValueManager
 import logging
 import subprocess
+from environment_variables import load_env_variables
 
 
 ## Initialize Rich console and logger
@@ -182,22 +182,41 @@ class Position:
 
 class DataLocker:
     _instance = None
-    def __init__(self, db_path: str = "app.db"):
-        self.db_path = db_path
+
+    def __init__(self, db_path: str = None):
+        # Load environment variables
+        load_env_variables()
+
+        # Resolve the database path
+        db_path = "C:\WebSonic\data\mother_brain.db"
+
+        # Ensure the database path is valid
+        if not db_path:
+            raise ValueError("Database path cannot be None or empty.")
+
+        self.db_path = os.path.abspath(db_path)
+
+        # Ensure the 'data' directory exists
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        print(f"Using database at: {self.db_path}")
+
+        # Initialize SQLite connection
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.cursor = self.conn.cursor()
         self._initialize_db()
+
+        # Set up logging
         self.local_data = local()
         self.console = Console()
         self.logger = logging.getLogger("DataLockerLogger")
         handler = logging.StreamHandler()
-        handler.setLevel(logging.CRITICAL)
+        handler.setLevel(logging.DEBUG)
         handler.setFormatter(
-            logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', '%Y-%m-%d %H:%M:%S'))
+            logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', '%Y-%m-%d %H:%M:%S')
+        )
         self.logger.addHandler(handler)
-
-
+        self.logger.debug("DataLocker initialized successfully")
 
     @staticmethod
     def get_instance():
@@ -311,29 +330,34 @@ class DataLocker:
         """
         Reads all prices from the database, including current and previous update times.
         """
-        try:
-            self.cursor.execute('SELECT asset_type, current_price, previous_price, avg_daily_swing, avg_1_hour, '
-                                'avg_3_hour, avg_6_hour, avg_24_hour, last_update_time, previous_update_time, source FROM prices')
-            rows = self.cursor.fetchall()
-            return [
-                {
-                    "asset_type": row[0],
-                    "current_price": row[1],
-                    "previous_price": row[2],
-                    "avg_daily_swing": row[3],
-                    "avg_1_hour": row[4],
-                    "avg_3_hour": row[5],
-                    "avg_6_hour": row[6],
-                    "avg_24_hour": row[7],
-                    "last_update_time": row[8],
-                    "previous_update_time": row[9],
-                    "source": row[10]
-                }
-                for row in rows
-            ]
-        except sqlite3.Error as e:
-            self.logger.error(f"Error reading prices: {e}")
-            return []
+        self.logger.debug("Fetching prices from the database")
+        self.cursor.execute('SELECT asset_type, current_price, previous_price, avg_daily_swing, avg_1_hour, '
+                            'avg_3_hour, avg_6_hour, avg_24_hour, last_update_time, previous_update_time, source FROM prices')
+        rows = self.cursor.fetchall()
+        self.logger.debug(f"Fetched prices: {rows}")
+        return [
+            {
+                "asset_type": row[0],
+                "current_price": row[1],
+                "previous_price": row[2],
+                "avg_daily_swing": row[3],
+                "avg_1_hour": row[4],
+                "avg_3_hour": row[5],
+                "avg_6_hour": row[6],
+                "avg_24_hour": row[7],
+                "last_update_time": row[8],
+                "previous_update_time": row[9],
+                "source": row[10]
+            }
+            for row in rows
+        ]
+
+    def read_positions(self):
+        self.logger.debug("Fetching positions from the database")
+        self.cursor.execute("SELECT * FROM positions")
+        rows = self.cursor.fetchall()
+        self.logger.debug(f"Fetched positions: {rows}")
+        return [dict(row) for row in rows]
 
     def update_price(self, price_id: int, new_price: float):
         try:
@@ -1053,10 +1077,12 @@ def run_unit_tests():
         console.print("[bold green]All unit tests passed![/bold green]")
 
 
-
 if __name__ == "__main__":
-    data_locker = DataLocker()
-    data_locker.drop_tables()  # Drop existing tables
-    data_locker._initialize_db()
+    # Load environment variables
+    load_env_variables()
+
+    # Initialize the DataLocker class
+    locker = DataLocker()
+    print(f"Database initialized at: {locker.db_path}")
 
     main_menu()

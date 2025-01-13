@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Manage Positions</h1>
+<form method="POST" action="/add-position">
+    <div class="mb-3">
+        <label for="id" class="form-label">Position ID</label>
+        <input type="text" class="form-control" id="id" name="id" required>
+    </div>
+    <div class="mb-3">
+        <label for="asset_type" class="form-label">Asset Type</label>
+        <input type="text" class="form-control" id="asset_type" name="asset_type" required>
+    </div>
+    <div class="mb-3">
+        <label for="entry_price" class="form-label">Entry Price</label>
+        <input type="number" step="0.01" class="form-control" id="entry_price" name="entry_price" required>
+    </div>
+    <div class="mb-3">
+        <label for="size" class="form-label">Size</label>
+        <input type="number" step="0.01" class="form-control" id="size" name="size" required>
+    </div>
+    <button type="submit" class="btn btn-primary">Add Position</button>
+</form>
+
+<hr>
+
+<h2>Existing Positions</h2>
+<table class="table">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Asset Type</th>
+            <th>Entry Price</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for position in positions %}
+        <tr>
+            <td>{{ position['id'] }}</td>
+            <td>{{ position['asset_type'] }}</td>
+            <td>{{ position['entry_price'] }}</td>
+            <td>
+                <a href="/delete-position/{{ position['id'] }}" class="btn btn-danger btn-sm">Delete</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}
