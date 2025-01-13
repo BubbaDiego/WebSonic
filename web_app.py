@@ -3,7 +3,7 @@ from data.data_locker import DataLocker  # Import your DataLocker class
 import os
 from datetime import datetime
 from environment_variables import load_env_variables
-from data.calc_services import CalcServices
+from calc_services import CalcServices
 
 app = Flask(__name__)
 
@@ -27,21 +27,22 @@ data_locker = DataLocker(db_path=db_path)
 @app.route('/dashboard')
 def dashboard():
     """
-    Render the dashboard with positions and prices.
+    Render the dashboard with positions, prices, and totals.
     """
     locker = DataLocker.get_instance()
     positions = locker.read_positions()
     prices = locker.read_prices()
 
-    # Ensure prices include last_update_time as a datetime object
-    for price in prices:
-        if isinstance(price.get("last_update_time"), str):
-            try:
-                price["last_update_time"] = datetime.fromisoformat(price["last_update_time"]) if price["last_update_time"] else None
-            except ValueError:
-                price["last_update_time"] = None
+    # Calculate totals using CalcServices
+    totals = CalcServices.calculate_totals(positions)
 
-    return render_template('dashboard.html', positions=positions, prices=prices)
+    return render_template(
+        'dashboard.html',
+        positions=positions,
+        prices=prices,
+        totals=totals
+    )
+
 @app.route("/refresh-data", methods=["POST"])
 def refresh_data():
     try:
