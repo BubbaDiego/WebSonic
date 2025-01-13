@@ -25,10 +25,16 @@ def home():
     print(f"Web app database path: {data_locker.db_path}")  # Debug log
     return "Welcome to Data Locker! Use the available endpoints to manage your data."
 
-@app.route("/refresh-positions", methods=["POST"])
-def refresh_positions():
-    data_locker.sync_dependent_data()  # Call the method to sync data
-    return redirect("/positions")  # Redirect back to the positions tab
+@app.route("/refresh-data", methods=["POST"])
+def refresh_data():
+    try:
+        data_locker.sync_dependent_data()
+        app.logger.info("Data refreshed successfully.")
+        return redirect("/manage-data")
+    except Exception as e:
+        app.logger.error(f"Error refreshing data: {e}")
+        return jsonify({"error": f"Failed to refresh data: {e}"}), 500
+
 
 @app.route("/manage-data", methods=["GET", "POST"])
 def manage_data():
@@ -125,6 +131,20 @@ def add_position():
     data_locker.create_position(position)
     return jsonify({"message": "Position added successfully!"})
 
+
+@app.route("/delete-position/<position_id>", methods=["POST"])
+def delete_position(position_id):
+    try:
+        data_locker.cursor.execute("DELETE FROM positions WHERE id = ?", (position_id,))
+        data_locker.conn.commit()
+        app.logger.debug(f"Position deleted: id={position_id}")
+        return redirect("/manage-data")
+    except Exception as e:
+        app.logger.error(f"Error deleting position: {e}")
+        return jsonify({"error": f"Failed to delete position: {e}"}), 500
+
+
+
 @app.route("/upload-positions", methods=["POST"])
 def upload_positions():
     if "file" not in request.files:
@@ -192,12 +212,6 @@ def prices():
 def delete_price(asset):
     data_locker.delete_price(asset)
     return redirect("/prices")
-
-@app.route("/delete-position/<id>", methods=["GET"])
-def delete_position(id):
-    data_locker.delete_position(id)
-    return redirect("/positions")
-
 
 # Sync
 @app.route("/sync-data", methods=["POST"])
