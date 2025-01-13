@@ -21,6 +21,7 @@ from rich.console import Console
 import logging
 import subprocess
 from environment_variables import load_env_variables
+from utils.calc_services import CalcServices
 
 
 ## Initialize Rich console and logger
@@ -671,23 +672,16 @@ class DataLocker:
             self.logger.error(f"Error calculating heat ratio: {e}", exc_info=True)
             return None, None
 
-    def calculate_value(self, position: Dict) -> float:
+    def calculate_value(self, position: dict) -> float:
         """
-        Calculate the value of a position using the ValueManager class.
+        Calculate the value of a position using CalcServices.
         """
+        calc = CalcServices()
         try:
-            # Create a ValueManager instance
-            manager = ValueManager(
-                size=position.get("size", 0),
-                entry_price=position.get("entry_price", 0),
-                current_price=position.get("current_price", 0),
-                collateral=position.get("collateral", 0),
-                position_type=position.get("position_type", "long").lower()  # Default to long
-            )
-
-            # Use ValueManager to calculate the position's value
-            return manager.calculate_value()
-
+            return calc.calculate_value(position)
+        except ValueError as e:
+            self.logger.error(f"Error calculating value for position {position.get('id')}: {e}")
+            raise
         except Exception as e:
             self.logger.error(f"Error calculating value for position {position.get('id', 'unknown')}: {e}",
                               exc_info=True)
@@ -727,17 +721,63 @@ class DataLocker:
             self.logger.error(f"Error calculating travel percent: {e}", exc_info=True)
             return None
 
-    from rich.console import Console
-    from rich.text import Text
-
-    # Initialize Rich console
-  #  debug_console = Console()
 
     def drop_tables(self):
         self.cursor.execute("DROP TABLE IF EXISTS prices")
         self.cursor.execute("DROP TABLE IF EXISTS alerts")
         self.cursor.execute("DROP TABLE IF EXISTS positions")
         self.conn.commit()
+
+    def sync_calc_services(self):
+        """
+        Update all positions in the database using CalcServices for calculations.
+        """
+        from utils.calc_services import CalcServices  # Import the centralized class
+
+        calc = CalcServices()
+        self.logger.info("Starting sync with CalcServices...")
+
+        try:
+            # Fetch all positions from the database
+            self.cursor.execute("SELECT * FROM positions")
+            positions = [dict(row) for row in self.cursor.fetchall()]
+
+            updated_positions = []
+            for position in positions:
+                # Process each position using CalcServices
+                calc.validate_position(position)  # Ensure position data is valid
+                position["heat_points"] = calc.calculate_heat_points(position)
+                position["travel_percent"] = calc.calculate_travel_percent(
+                    position["entry_price"], position["current_price"], position["liquidation_price"]
+                )
+                position["liquid_distance"] = calc.calculate_liquid_distance(
+                    position["current_price"], position["liquidation_price"]
+                )
+                position["value"] = calc.calculate_value(position)
+
+                updated_positions.append(position)
+
+                # Update the database with calculated values
+                self.cursor.execute(
+                    """
+                    UPDATE positions
+                    SET heat_points = ?, travel_percent = ?, liquid_distance = ?, value = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        position["heat_points"],
+                        position["travel_percent"],
+                        position["liquid_distance"],
+                        position["value"],
+                        position["id"],
+                    ),
+                )
+
+            self.conn.commit()
+            self.logger.info("Sync with CalcServices completed successfully.")
+        except Exception as e:
+            self.logger.error(f"Error during sync with CalcServices: {e}")
+            raise
 
     def sync_dependent_data(self):
         """
