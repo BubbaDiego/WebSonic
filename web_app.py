@@ -20,17 +20,41 @@ print(f"Web app using database at: {db_path}")
 # Initialize DataLocker with the specified database path
 data_locker = DataLocker(db_path=db_path)
 
-@app.route("/")
-def home():
-    print(f"Web app database path: {data_locker.db_path}")  # Debug log
-    return "Welcome to Data Locker! Use the available endpoints to manage your data."
+@app.route("/", methods=["GET", "POST"])
+@app.route("/dash", methods=["GET", "POST"])
+@app.route("/dashboard", methods=["GET", "POST"])
+def dashboard():
+    try:
+        if request.method == "POST":
+            # Handle form submissions (e.g., adding prices or positions)
+            if "asset" in request.form:
+                asset = request.form["asset"]
+                price = float(request.form["price"])
+                data_locker.create_price(asset, price, "Manual", None)
+            elif "id" in request.form:
+                position = {
+                    "id": request.form["id"],
+                    "asset_type": request.form["asset_type"],
+                    "entry_price": float(request.form["entry_price"]),
+                    "size": float(request.form["size"]),
+                }
+                data_locker.create_position(position)
+
+        # Fetch data for rendering
+        prices = data_locker.read_prices()
+        positions = data_locker.read_positions()
+
+        return render_template("dashboard.html", prices=prices, positions=positions)
+    except Exception as e:
+        app.logger.error(f"Error in dashboard: {e}")
+        return "An error occurred while processing your request. Check server logs for details.", 500
 
 @app.route("/refresh-data", methods=["POST"])
 def refresh_data():
     try:
         data_locker.sync_dependent_data()
         app.logger.info("Data refreshed successfully.")
-        return redirect("/manage-data")
+        return redirect("/dash")
     except Exception as e:
         app.logger.error(f"Error refreshing data: {e}")
         return jsonify({"error": f"Failed to refresh data: {e}"}), 500
@@ -143,8 +167,6 @@ def delete_position(position_id):
         app.logger.error(f"Error deleting position: {e}")
         return jsonify({"error": f"Failed to delete position: {e}"}), 500
 
-
-
 @app.route("/upload-positions", methods=["POST"])
 def upload_positions():
     if "file" not in request.files:
@@ -155,22 +177,19 @@ def upload_positions():
 
     import json
     try:
-        # Load JSON data
+        # Load and process JSON
         data = json.load(file)
+        if "positions" not in data or not isinstance(data["positions"], list):
+            return jsonify({"error": "Invalid JSON structure"}), 400
 
-        # Ensure the JSON has a 'positions' key
-        if "positions" not in data:
-            return jsonify({"error": "Invalid JSON: Missing 'positions' key."}), 400
-
-        # Call DataLocker to import positions
-        data_locker.import_portfolio_data(data)
-
-        return redirect("/manage-data")
+        data_locker.import_portfolio_data(data)  # Use DataLocker to process
+        return redirect("/dashboard")
     except json.JSONDecodeError:
         return jsonify({"error": "Invalid JSON format."}), 400
     except Exception as e:
         app.logger.error(f"Error importing positions: {e}")
         return jsonify({"error": f"Failed to process file: {e}"}), 500
+
 # Alerts
 @app.route("/view-alerts", methods=["GET"])
 def view_alerts():
@@ -212,6 +231,17 @@ def prices():
 def delete_price(asset):
     data_locker.delete_price(asset)
     return redirect("/prices")
+
+@app.route("/delete-all", methods=["POST"])
+def delete_all():
+    try:
+        data_locker.cursor.execute("DELETE FROM positions")  # Delete all positions
+        data_locker.conn.commit()
+        app.logger.info("All positions deleted successfully.")
+        return redirect("/dashboard")
+    except Exception as e:
+        app.logger.error(f"Error deleting all positions: {e}")
+        return jsonify({"error": f"Failed to delete all positions: {e}"}), 500
 
 # Sync
 @app.route("/sync-data", methods=["POST"])
