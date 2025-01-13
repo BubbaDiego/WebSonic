@@ -7,11 +7,11 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body {
-            background-color: #f4faff; /* Light blue background */
+            background-color: #f4faff;
         }
         .title {
             text-align: center;
-            color: #003366; /* Dark blue */
+            color: #003366;
             font-size: 2.5rem;
             margin-bottom: 30px;
         }
@@ -125,9 +125,9 @@
                     <div class="mb-3">
                         <label for="asset" class="form-label">Asset</label>
                         <select class="form-select" id="asset" name="asset" required>
-                            <option value="Bitcoin" data-logo="/static/images/bitcoin_logo.png">Bitcoin</option>
-                            <option value="Ethereum" data-logo="/static/images/eth_logo.png">Ethereum</option>
-                            <option value="Solana" data-logo="/static/images/solana_logo.png">Solana</option>
+                            <option value="Bitcoin">Bitcoin</option>
+                            <option value="Ethereum">Ethereum</option>
+                            <option value="Solana">Solana</option>
                         </select>
                     </div>
                     <div class="mb-3">
@@ -136,6 +136,30 @@
                     </div>
                     <button type="submit" class="btn btn-primary">Add Price</button>
                 </form>
+
+                <!-- Recent Prices Table -->
+                <h3 class="mt-4">Recent Prices</h3>
+                <table class="table table-striped table-bordered">
+                    <thead>
+                        <tr>
+                            <th>📊 Asset</th>
+                            <th>💰 Current Price</th>
+                            <th>🕒 Last Updated</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for price in prices %}
+                        <tr>
+                            <td>
+                                <img src="/static/images/{{ price.asset_type | lower }}_logo.png" class="asset-logo">
+                                {{ price.asset_type }}
+                            </td>
+                            <td>{{ "%.2f"|format(price.current_price) }}</td>
+                            <td>{{ price.last_update_time.strftime('%Y-%m-%d %H:%M:%S') if price.last_update_time else "Never" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>

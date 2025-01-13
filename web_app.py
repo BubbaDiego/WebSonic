@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, render_template, redirect
 from data.data_locker import DataLocker  # Import your DataLocker class
 import os
+from datetime import datetime
 from environment_variables import load_env_variables
 from data.calc_services import CalcServices
 
@@ -23,33 +24,24 @@ data_locker = DataLocker(db_path=db_path)
 
 @app.route("/", methods=["GET", "POST"])
 @app.route("/dash", methods=["GET", "POST"])
-@app.route("/dashboard", methods=["GET", "POST"])
+@app.route('/dashboard')
 def dashboard():
-    try:
-        if request.method == "POST":
-            # Handle form submissions (e.g., adding prices or positions)
-            if "asset" in request.form:
-                asset = request.form["asset"]
-                price = float(request.form["price"])
-                data_locker.create_price(asset, price, "Manual", None)
-            elif "id" in request.form:
-                position = {
-                    "id": request.form["id"],
-                    "asset_type": request.form["asset_type"],
-                    "entry_price": float(request.form["entry_price"]),
-                    "size": float(request.form["size"]),
-                }
-                data_locker.create_position(position)
+    """
+    Render the dashboard with positions and prices.
+    """
+    locker = DataLocker.get_instance()
+    positions = locker.read_positions()
+    prices = locker.read_prices()
 
-        # Fetch data for rendering
-        prices = data_locker.read_prices()
-        positions = data_locker.read_positions()
+    # Ensure prices include last_update_time as a datetime object
+    for price in prices:
+        if isinstance(price.get("last_update_time"), str):
+            try:
+                price["last_update_time"] = datetime.fromisoformat(price["last_update_time"]) if price["last_update_time"] else None
+            except ValueError:
+                price["last_update_time"] = None
 
-        return render_template("dashboard.html", prices=prices, positions=positions)
-    except Exception as e:
-        app.logger.error(f"Error in dashboard: {e}")
-        return "An error occurred while processing your request. Check server logs for details.", 500
-
+    return render_template('dashboard.html', positions=positions, prices=prices)
 @app.route("/refresh-data", methods=["POST"])
 def refresh_data():
     try:
@@ -118,15 +110,32 @@ def view_prices():
     prices = data_locker.read_prices()
     return jsonify(prices)
 
-@app.route("/add-price", methods=["POST"])
+@app.route('/add-price', methods=['POST'])
 def add_price():
-    data = request.json
-    asset = data.get("asset")
-    price = data.get("price")
-    source = data.get("source", "Manual")
-    timestamp = data.get("timestamp")
-    data_locker.create_price(asset, price, source, timestamp)
-    return jsonify({"message": f"Price for {asset} added successfully!"})
+    """
+    Adds or updates a price in the database using form-data.
+    """
+    locker = DataLocker.get_instance()
+
+    try:
+        # Extract form-data from the request
+        asset = request.form.get('asset')
+        price = request.form.get('price')
+        source = "Manual Update"  # Default source
+        timestamp = datetime.now()  # Use the imported datetime module
+
+        # Validate required fields
+        if not asset or not price:
+            return jsonify({"error": "Missing 'asset' or 'price' field in form data"}), 400
+
+        # Use the DataLocker to create or update the price
+        locker.create_price(asset, float(price), source, timestamp)
+
+        return redirect('/dashboard')  # Redirect back to the dashboard
+
+    except Exception as e:
+        app.logger.error(f"Error adding price: {e}")
+        return jsonify({"error": f"Failed to add price: {str(e)}"}), 500
 
 # Positions
 @app.route("/view-positions", methods=["GET"])
