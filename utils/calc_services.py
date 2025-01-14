@@ -66,20 +66,6 @@ class CalcServices:
         heat_points = (size * leverage) / collateral
         return round(heat_points, 2)
 
-    def calculate_value(self, position: dict) -> float:
-        """
-        Calculate position value based on size and current price.
-        """
-        size = position.get("size", 0)
-        current_price = position.get("current_price", 0)
-        position_type = position.get("position_type", "long").lower()
-
-        if position_type == "long":
-            return round(size * current_price, 2)
-        elif position_type == "short":
-            return round(size * (2 * position.get("entry_price", 0) - current_price), 2)
-        return 0.0
-
     @staticmethod
     def calculate_totals(positions):
         """
@@ -178,4 +164,40 @@ class CalcServices:
             processed_positions.append(pos)
 
         return processed_positions
+
+    def calculate_balance_metrics(self, positions: List[Dict]) -> Dict:
+        """
+        Calculate metrics for the balance report (short vs. long comparisons).
+        """
+        total_short_size = total_short_collateral = total_short_value = 0
+        total_long_size = total_long_collateral = total_long_value = 0
+
+        for pos in positions:
+            size = pos.get("size", 0)
+            collateral = pos.get("collateral", 0)
+            value = pos.get("value", 0)
+            if pos["position_type"].lower() == "short":
+                total_short_size += size
+                total_short_collateral += collateral
+                total_short_value += value
+            elif pos["position_type"].lower() == "long":
+                total_long_size += size
+                total_long_collateral += collateral
+                total_long_value += value
+
+        total_size = total_short_size + total_long_size
+        total_collateral = total_short_collateral + total_long_collateral
+        total_value = total_short_value + total_long_value
+
+        return {
+            "total_short_size": total_short_size,
+            "total_long_size": total_long_size,
+            "total_short_collateral": total_short_collateral,
+            "total_long_collateral": total_long_collateral,
+            "total_short_value": total_short_value,
+            "total_long_value": total_long_value,
+            "total_size": total_size,
+            "total_collateral": total_collateral,
+            "total_value": total_value
+        }
 

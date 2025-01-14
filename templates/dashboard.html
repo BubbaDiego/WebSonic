@@ -38,6 +38,25 @@
             background-color: #cce5ff;
             color: #0056b3;
         }
+        tfoot {
+            background-color: #c8e6c9; /* Light green for totals row */
+        }
+        .heat-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .bar {
+            height: 20px;
+            margin: 5px 0;
+            border-radius: 5px;
+        }
+        .long-bar {
+            background-color: #4caf50;
+        }
+        .short-bar {
+            background-color: #f44336;
+        }
     </style>
 </head>
 <body>
@@ -54,6 +73,9 @@
             </li>
             <li class="nav-item">
                 <a class="nav-link" href="#prices-tab" data-bs-toggle="tab">Prices</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="#heat-tab" data-bs-toggle="tab">Heat</a>
             </li>
         </ul>
 
@@ -103,7 +125,7 @@
                         {% endfor %}
                     </tbody>
                     <tfoot>
-                        <tr style="font-weight: bold; background-color: #dff0d8;">
+                        <tr style="font-weight: bold;">
                             <td>Totals</td>
                             <td></td>
                             <td>${{ "%.2f"|format(totals.total_collateral) }}</td>
@@ -149,6 +171,79 @@
                     </div>
                     <button type="submit" class="btn btn-primary">Add Price</button>
                 </form>
+
+                <!-- Recent Prices Table -->
+                <h3 class="mt-4">Recent Prices</h3>
+                <table class="table table-striped table-bordered">
+                    <thead>
+                        <tr>
+                            <th>📊 Asset</th>
+                            <th>💰 Current Price</th>
+                            <th>🕒 Last Updated</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for price in prices %}
+                        <tr>
+                            <td>
+                                <img src="/static/images/{{ price.asset_type | lower }}_logo.png" class="asset-logo">
+                                {{ price.asset_type }}
+                            </td>
+                            <td>{{ "%.2f"|format(price.current_price) }}</td>
+                            <td>{{ price.last_update_time.strftime('%Y-%m-%d %H:%M:%S') if price.last_update_time else "Never" }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Heat Tab -->
+            <div class="tab-pane fade" id="heat-tab">
+                <h2 class="text-dark">Heat Report</h2>
+
+                <!-- Heat Comparison Table -->
+                <div class="table-container">
+                    <h3 class="text-dark">Heat Comparison</h3>
+                    <table class="table table-striped table-bordered">
+                        <thead>
+                            <tr>
+                                <th>📊 Metric</th>
+                                <th>🟢 Long</th>
+                                <th>🔴 Short</th>
+                                <th>Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Total Size</td>
+                                <td>{{ "%.2f"|format(balance_metrics.total_long_size) }}</td>
+                                <td>{{ "%.2f"|format(balance_metrics.total_short_size) }}</td>
+                                <td>{{ "%.2f"|format(balance_metrics.total_size) }}</td>
+                            </tr>
+                            <tr>
+                                <td>Total Value</td>
+                                <td>${{ "%.2f"|format(balance_metrics.total_long_value) }}</td>
+                                <td>${{ "%.2f"|format(balance_metrics.total_short_value) }}</td>
+                                <td>${{ "%.2f"|format(balance_metrics.total_value) }}</td>
+                            </tr>
+                            <tr>
+                                <td>Total Collateral</td>
+                                <td>${{ "%.2f"|format(balance_metrics.total_long_collateral) }}</td>
+                                <td>${{ "%.2f"|format(balance_metrics.total_short_collateral) }}</td>
+                                <td>${{ "%.2f"|format(balance_metrics.total_collateral) }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Heat Bars -->
+                <div class="heat-bar">
+                    <h3 class="text-dark">Heat Bar</h3>
+                    <div class="bar-container">
+                        <div class="bar long-bar" style="width: {{ balance_metrics.total_long_size / balance_metrics.total_size * 100 if balance_metrics.total_size else 0 }}%"></div>
+                        <div class="bar short-bar" style="width: {{ balance_metrics.total_short_size / balance_metrics.total_size * 100 if balance_metrics.total_size else 0 }}%"></div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

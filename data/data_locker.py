@@ -346,8 +346,8 @@ class DataLocker:
                 "avg_3_hour": row[5],
                 "avg_6_hour": row[6],
                 "avg_24_hour": row[7],
-                "last_update_time": row[8],
-                "previous_update_time": row[9],
+                "last_update_time": datetime.fromisoformat(row[8]) if row[8] else None,
+                "previous_update_time": datetime.fromisoformat(row[9]) if row[9] else None,
                 "source": row[10]
             }
             for row in rows

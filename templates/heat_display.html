@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Heat Comparison</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            text-align: center;
+            border: 2px solid #000;
+            background-color: #F8F9FA; /* Light grey background for table */
+        }
+        th, td {
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+        }
+        th {
+            background-color: #007BFF;
+            color: white;
+        }
+        tr:last-child {
+            font-weight: bold;
+            background-color: #F0F8FF; /* Light blue for totals row */
+            border-top: 2px solid #000;
+        }
+        .totals-row {
+            background-color: #D8BFD8; /* Light purple for totals */
+            border-top: 3px solid #003366; /* Dark blue border for totals row */
+        }
+    </style>
+</head>
+<body>
+    <h1 style="text-align: center;">🔥 Heat Comparison 🔥</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>📊 Asset</th>
+                <th>🔖 Type</th>
+                <th>💰 Collateral</th>
+                <th>📈 Value</th>
+                <th>📏 Size</th>
+                <th>⚙️ Leverage</th>
+                <th>📉 Travel %</th>
+                <th>🔥 Heat Index</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- Dynamically render rows using Flask/Jinja2 -->
+            {% for row in data %}
+            <tr>
+                <td style="background-color: {{ row.collateral_color }};">{{ row.asset }}</td>
+                <td style="background-color: {{ row.value_color }};">{{ row.type }}</td>
+                <td style="background-color: {{ row.collateral_color }};">{{ row.collateral }}</td>
+                <td style="background-color: {{ row.value_color }};">{{ row.value }}</td>
+                <td style="background-color: {{ row.size_color }};">{{ row.size }}</td>
+                <td style="background-color: {{ row.leverage_color }};">{{ row.leverage }}</td>
+                <td style="background-color: {{ row.travel_percent_color }};">{{ row.travel_percent }}</td>
+                <td style="background-color: {{ row.heat_index_color }};">{{ row.heat_index }}</td>
+            </tr>
+            {% endfor %}
+            <!-- Totals row -->
+            <tr class="totals-row">
+                <td>Totals</td>
+                <td></td>
+                <td style="background-color: {{ totals.collateral_color }};">{{ totals.collateral }}</td>
+                <td style="background-color: {{ totals.value_color }};">{{ totals.value }}</td>
+                <td style="background-color: {{ totals.size_color }};">{{ totals.size }}</td>
+                <td style="background-color: {{ totals.leverage_color }};">{{ totals.leverage }}</td>
+                <td style="background-color: {{ totals.travel_percent_color }};">{{ totals.travel_percent }}</td>
+                <td style="background-color: {{ totals.heat_index_color }};">{{ totals.heat_index }}</td>
+            </tr>
+        </tbody>
+    </table>
+</body>
+</html>

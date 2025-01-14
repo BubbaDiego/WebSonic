@@ -2,21 +2,9 @@
 
 {% block content %}
 <h1>Manage Prices</h1>
-<form method="POST" action="/add-price">
-    <div class="mb-3">
-        <label for="asset" class="form-label">Asset</label>
-        <input type="text" class="form-control" id="asset" name="asset" required>
-    </div>
-    <div class="mb-3">
-        <label for="price" class="form-label">Price</label>
-        <input type="number" step="0.01" class="form-control" id="price" name="price" required>
-    </div>
-    <button type="submit" class="btn btn-primary">Add Price</button>
-</form>
 
-<hr>
-
-<h2>Existing Prices</h2>
+<!-- Current Prices Section -->
+<h2>Current Prices</h2>
 <table class="table">
     <thead>
         <tr>
@@ -37,4 +25,20 @@
         {% endfor %}
     </tbody>
 </table>
+
+<hr>
+
+<!-- Manage Prices Form -->
+<h2>Add or Update Prices</h2>
+<form method="POST" action="/add-price">
+    <div class="mb-3">
+        <label for="asset" class="form-label">Asset</label>
+        <input type="text" class="form-control" id="asset" name="asset" required>
+    </div>
+    <div class="mb-3">
+        <label for="price" class="form-label">Price</label>
+        <input type="number" step="0.01" class="form-control" id="price" name="price" required>
+    </div>
+    <button type="submit" class="btn btn-primary">Add Price</button>
+</form>
 {% endblock %}

@@ -26,21 +26,22 @@ data_locker = DataLocker(db_path=db_path)
 @app.route("/dash", methods=["GET", "POST"])
 @app.route('/dashboard')
 def dashboard():
-    """
-    Render the dashboard with positions, prices, and totals.
-    """
-    locker = DataLocker.get_instance()
-    positions = locker.read_positions()
-    prices = locker.read_prices()
-
-    # Calculate totals using CalcServices
+    positions = data_locker.read_positions()
+    prices = data_locker.read_prices()
     totals = CalcServices.calculate_totals(positions)
+
+    try:
+        balance_metrics = CalcServices().calculate_balance_metrics(positions)
+    except Exception as e:
+        app.logger.error(f"Error calculating balance metrics: {e}")
+        balance_metrics = None  # Handle gracefully if calculation fails
 
     return render_template(
         'dashboard.html',
         positions=positions,
         prices=prices,
-        totals=totals
+        totals=totals,
+        balance_metrics=balance_metrics  # Ensure this is passed to the template
     )
 
 @app.route("/refresh-data", methods=["POST"])
@@ -72,6 +73,26 @@ def manage_data():
     prices = data_locker.read_prices()
     positions = data_locker.read_positions()
     return render_template("manage_data.html", prices=prices, positions=positions)
+
+
+@app.route("/heat", methods=["GET"])
+def heat():
+    """
+    Render the heat report combining heat and balance data.
+    """
+    try:
+        positions = data_locker.read_positions()
+        balance_metrics = CalcServices().calculate_balance_metrics(positions)
+        processed_positions = CalcServices().prepare_positions_for_display(positions)
+
+        return render_template(
+            "heat_display.html",
+            balance_metrics=balance_metrics,
+            positions=processed_positions
+        )
+    except Exception as e:
+        app.logger.error(f"Error generating heat report: {e}")
+        return jsonify({"error": f"Failed to generate heat report: {e}"}), 500
 
 @app.route("/positions", methods=["GET", "POST"])
 def positions():
