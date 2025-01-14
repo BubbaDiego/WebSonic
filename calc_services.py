@@ -70,35 +70,32 @@ class CalcServices:
     def calculate_totals(positions):
         """
         Calculate totals and averages for positions.
-
-        Args:
-            positions (list): List of position dictionaries.
-
-        Returns:
-            dict: Totals and averages for positions.
         """
         total_size = total_value = total_collateral = total_heat_index = 0
         total_heat_index_count = 0
         weighted_leverage_sum = weighted_travel_percent_sum = 0
 
         for pos in positions:
-            size = pos.get('size', 0) or 0
-            value = pos.get('value', 0) or 0
-            collateral = pos.get('collateral', 0) or 0
-            leverage = pos.get('leverage', 0) or 0
-            travel_percent = pos.get('current_travel_percent', 0) or 0
-            heat_index = pos.get('heat_index', 0) or 0
+            try:
+                size = pos.get('size', 0) or 0
+                value = pos.get('value', 0) or 0
+                collateral = pos.get('collateral', 0) or 0
+                leverage = pos.get('leverage', 0) or 0
+                travel_percent = pos.get('current_travel_percent', 0) or 0
+                heat_index = pos.get('heat_points', 0) or 0
 
-            total_size += size
-            total_value += value
-            total_collateral += collateral
+                total_size += size
+                total_value += value
+                total_collateral += collateral
 
-            if heat_index:
-                total_heat_index += heat_index
-                total_heat_index_count += 1
+                if heat_index:
+                    total_heat_index += heat_index
+                    total_heat_index_count += 1
 
-            weighted_leverage_sum += leverage * size
-            weighted_travel_percent_sum += travel_percent * size
+                weighted_leverage_sum += leverage * size
+                weighted_travel_percent_sum += travel_percent * size
+            except Exception as e:
+                print(f"Error calculating totals for position {pos.get('id', 'unknown')}: {e}")
 
         avg_heat_index = total_heat_index / total_heat_index_count if total_heat_index_count else 0
         avg_leverage = weighted_leverage_sum / total_size if total_size else 0

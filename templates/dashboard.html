@@ -39,7 +39,7 @@
             color: #0056b3;
         }
         tfoot {
-            background-color: #c8e6c9; /* Light green for totals row */
+            background-color: #c8e6c9; /* Light green for totals row  */
         }
         .heat-bar {
             display: flex;
@@ -98,7 +98,7 @@
                             <th>📏 Size</th>
                             <th>⚙️ Leverage</th>
                             <th>📉 Travel %</th>
-                            <th>🔥 Heat Index</th>
+                            <th>🔥 Heat Points</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -114,11 +114,34 @@
                             <td style="background-color: {{ position.value_color }}">{{ "%.2f"|format(position.value) }}</td>
                             <td style="background-color: {{ position.size_color }}">{{ "%.2f"|format(position.size) }}</td>
                             <td style="background-color: {{ position.leverage_color }}">{{ "%.2f"|format(position.leverage) }}</td>
-                            <td style="background-color: {{ position.travel_percent_color }}">{{ "%.2f"|format(position.travel_percent or 0) }}</td>
-                            <td style="background-color: {{ position.heat_index_color }}">{{ "%.2f"|format(position.heat_index or 0) }}</td>
+                            <td style="background-color: {{ position.travel_percent_color }}">
+                                {% if position.current_travel_percent is not none %}
+                                    {{ "%.2f"|format(position.current_travel_percent) }}%
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </td>
+                            <td style="background-color: {{ position.heat_index_color }}">
+                                {% if position.heat_points is not none %}
+                                    {{ "%.2f"|format(position.heat_points) }}
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </td>
                             <td>
                                 <form method="POST" action="/delete-position/{{ position.id }}" style="display: inline;">
                                     <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                                </form>
+                                <button class="btn btn-success btn-sm" onclick="enableEdit('{{ position.id }}')">Edit</button>
+                                <form id="edit-form-{{ position.id }}" method="POST" action="/edit-position/{{ position.id }}" style="display: none;">
+                                    <div class="d-flex flex-column">
+                                        <label for="size-{{ position.id }}">Size</label>
+                                        <input type="number" step="0.01" id="size-{{ position.id }}" name="size" placeholder="Size" value="{{ position.size }}" required>
+                                        <label for="collateral-{{ position.id }}">Collateral</label>
+                                        <input type="number" step="0.01" id="collateral-{{ position.id }}" name="collateral" placeholder="Collateral" value="{{ position.collateral }}" required>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary btn-sm mt-2">Save</button>
+                                    <button type="button" class="btn btn-secondary btn-sm mt-2" onclick="cancelEdit('{{ position.id }}')">Cancel</button>
                                 </form>
                             </td>
                         </tr>
@@ -155,6 +178,31 @@
 
             <!-- Prices Tab -->
             <div class="tab-pane fade" id="prices-tab">
+                <!-- Current Prices Section -->
+                <div class="mb-5">
+                    <h2>Current Prices</h2>
+                    <table class="table table-striped table-bordered">
+                        <thead>
+                            <tr>
+                                <th>📊 Asset</th>
+                                <th>💰 Current Price</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for price in prices %}
+                            <tr>
+                                <td>
+                                    <img src="/static/images/{{ price.asset_type | lower }}_logo.png" class="asset-logo">
+                                    {{ price.asset_type }}
+                                </td>
+                                <td>{{ "%.2f"|format(price.current_price) }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Manage Prices Section -->
                 <h2 class="text-dark">Manage Prices</h2>
                 <form method="POST" action="/add-price">
                     <div class="mb-3">
@@ -305,6 +353,14 @@
                 });
             }
         });
+
+        function enableEdit(positionId) {
+            document.getElementById(`edit-form-${positionId}`).style.display = 'inline';
+        }
+
+        function cancelEdit(positionId) {
+            document.getElementById(`edit-form-${positionId}`).style.display = 'none';
+        }
     </script>
 </body>
 </html>

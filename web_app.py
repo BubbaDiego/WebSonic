@@ -47,7 +47,8 @@ def dashboard():
 @app.route("/refresh-data", methods=["POST"])
 def refresh_data():
     try:
-        data_locker.sync_dependent_data()
+        #data_locker.sync_dependent_data()  # we are replacing this
+        data_locker.sync_calc_services()  # add this functionality.
         app.logger.info("Data refreshed successfully.")
         return redirect("/dash")
     except Exception as e:
@@ -73,6 +74,37 @@ def manage_data():
     prices = data_locker.read_prices()
     positions = data_locker.read_positions()
     return render_template("manage_data.html", prices=prices, positions=positions)
+
+@app.route("/edit-position/<position_id>", methods=["POST"])
+def edit_position(position_id):
+    try:
+        size = request.form.get("size")
+        collateral = request.form.get("collateral")
+
+        # Validate inputs
+        if not size or not collateral:
+            return jsonify({"error": "Size and Collateral are required"}), 400
+
+        # Update the database
+        data_locker.cursor.execute(
+            """
+            UPDATE positions
+            SET size = ?, collateral = ?
+            WHERE id = ?
+            """,
+            (float(size), float(collateral), position_id)
+        )
+        data_locker.conn.commit()
+
+        # GENO REFRESH TEST
+        data_locker.sync_dependent_data()
+        data_locker.sync_calc_services()
+
+        app.logger.info(f"Position {position_id} updated successfully.")
+        return redirect("/dashboard")
+    except Exception as e:
+        app.logger.error(f"Error updating position {position_id}: {e}")
+        return jsonify({"error": f"Failed to update position: {e}"}), 500
 
 
 @app.route("/heat", methods=["GET"])

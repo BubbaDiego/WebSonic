@@ -189,7 +189,7 @@ class DataLocker:
         load_env_variables()
 
         # Resolve the database path
-        db_path = "C:\WebSonic\data\mother_brain.db"
+        db_path = r"C:\websonic\data\mother_brain.db"
 
         # Ensure the database path is valid
         if not db_path:
@@ -732,6 +732,58 @@ class DataLocker:
         """
         Update all positions in the database using CalcServices for calculations.
         """
+        calc = CalcServices()
+        self.logger.info("Starting sync with CalcServices...")
+
+        try:
+            # Fetch all positions from the database
+            self.cursor.execute("SELECT * FROM positions")
+            positions = [dict(row) for row in self.cursor.fetchall()]
+
+            for position in positions:
+                try:
+                    # Validate position
+                    calc.validate_position(position)
+
+                    # Calculate dependent fields
+                    position["value"] = calc.calculate_value(position)
+                    position["current_travel_percent"] = calc.calculate_travel_percent(
+                        entry_price=position["entry_price"],
+                        current_price=position["current_price"],
+                        liquidation_price=position["liquidation_price"]
+                    )
+                    position["heat_points"] = calc.calculate_heat_points(position)
+
+                    # Update the database with calculated values
+                    self.cursor.execute(
+                        """
+                        UPDATE positions
+                        SET value = ?,
+                            current_travel_percent = ?,
+                            heat_points = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            position["value"],
+                            position["current_travel_percent"],
+                            position["heat_points"],
+                            position["id"]
+                        )
+                    )
+                except ValueError as e:
+                    self.logger.warning(f"Skipping position ID {position.get('id')}: {e}")
+                    continue  # Skip invalid rows
+
+            self.conn.commit()
+            self.logger.info("Sync with CalcServices completed successfully.")
+        except Exception as e:
+            self.logger.error(f"Error during sync with CalcServices: {e}", exc_info=True)
+            raise
+
+    def sync_calc_services2(self):
+        """
+        Update all positions in the database using CalcServices for calculations.
+        """
         from utils.calc_services import CalcServices  # Import the centralized class
 
         calc = CalcServices()
@@ -792,74 +844,55 @@ class DataLocker:
             price_dict = {price['asset_type']: price['current_price'] for price in prices}
 
             for position in positions:
+                # Log any missing or invalid fields
+                missing_fields = [
+                    key for key in ["entry_price", "current_price", "liquidation_price"]
+                    if not position.get(key)
+                ]
+                if missing_fields:
+                    self.logger.warning(f"Position ID {position['id']} missing fields: {missing_fields}")
+                    continue
+
                 # Update current price from the database
-                if position['asset_type'] in price_dict:
-                    position['current_price'] = price_dict[position['asset_type']]
+                position['current_price'] = price_dict.get(position['asset_type'], None)
+                if not position['current_price']:
+                    self.logger.warning(f"Missing current price for asset: {position['asset_type']}")
+                    continue
 
-                # Update position value using ValueManager
+                # Update calculated fields
                 position['value'] = self.calculate_value(position)
-
-                # Update Travel Percent
-                current_travel_percent = self.calculate_travel_percent(
+                position['current_travel_percent'] = self.calculate_travel_percent(
                     entry_price=position['entry_price'],
                     current_price=position['current_price'],
                     liquidation_price=position['liquidation_price']
-                )
-                position['current_travel_percent'] = current_travel_percent
-
-                # Update Liquidation Distance
-                liquidation_distance = self.calculate_liquid_distance(
+                ) or 0
+                position['liquidation_distance'] = self.calculate_liquid_distance(
                     current_price=position['current_price'],
                     liquidation_price=position['liquidation_price']
-                )
-                position['liquidation_distance'] = liquidation_distance
-
-                # Update Leverage
-                leverage = self.calculate_leverage(
-                    size=position['size'],
-                    collateral=position['collateral']
-                )
-                position['leverage'] = leverage if leverage is not None else position['leverage']
-
-                # Update Value
-                value = self.calculate_value(position)
-                position['value'] = value
-
-                # Get Heat Points
-                heat_points = self.calculate_heat_points(position)
-                position['heat_points'] = heat_points if heat_points is not None else position['heat_points']
-
-                # Update Current Heat Points
-                adjusted_long_heat_points, adjusted_short_heat_points = self.calculate_current_heat_points(position, position)
-                position[
-                    'current_heat_points'] = adjusted_long_heat_points if adjusted_long_heat_points is not None else position.get(
-                    'current_heat_points', 0.0)
+                ) or 0
+                position['heat_points'] = self.calculate_heat_points(position) or 0
 
                 # Save updated position back to the database
                 self.cursor.execute('''
                     UPDATE positions
                     SET current_price = ?,
+                        value = ?,
                         current_travel_percent = ?,
                         liquidation_distance = ?,
-                        leverage = ?,
-                        value = ?,
-                        heat_points = ?,
-                        current_heat_points = ?
+                        heat_points = ?
                     WHERE id = ?
                 ''', (
                     position['current_price'],
-                    current_travel_percent,
-                    liquidation_distance,
-                    leverage,
-                    value,
+                    position['value'],
+                    position['current_travel_percent'],
+                    position['liquidation_distance'],
                     position['heat_points'],
-                    position['current_heat_points'],
                     position['id']
                 ))
 
             # Commit changes to the database
             self.conn.commit()
-           # self.logger.info("All dependent data synced successfully.")
+            self.logger.info("Dependent data synced successfully.")
         except Exception as e:
             self.logger.error(f"Error syncing dependent data: {e}", exc_info=True)
 
