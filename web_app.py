@@ -34,7 +34,23 @@ def dashboard():
         balance_metrics = CalcServices().calculate_balance_metrics(positions)
     except Exception as e:
         app.logger.error(f"Error calculating balance metrics: {e}")
-        balance_metrics = None
+        balance_metrics = {
+            "total_long_size": 0,
+            "total_short_size": 0,
+            "total_size": 0,
+            "total_long_value": 0,
+            "total_short_value": 0,
+            "total_value": 0,
+            "total_long_collateral": 0,
+            "total_short_collateral": 0,
+            "total_collateral": 0,
+        }
+
+    # Limit all numbers to two decimal places
+    positions = [{k: (round(v, 2) if isinstance(v, (int, float)) else v) for k, v in pos.items()} for pos in positions]
+    prices = [{k: (round(v, 2) if isinstance(v, (int, float)) else v) for k, v in price.items()} for price in prices]
+    totals = {k: (round(v, 2) if isinstance(v, (int, float)) else v) for k, v in totals.items()}
+    balance_metrics = {k: (round(v, 2) if isinstance(v, (int, float)) else v) for k, v in balance_metrics.items()}
 
     return render_template(
         'dashboard.html',
@@ -43,6 +59,7 @@ def dashboard():
         totals=totals,
         balance_metrics=balance_metrics
     )
+
 
 @app.route("/refresh-data", methods=["POST"])
 def refresh_data():
