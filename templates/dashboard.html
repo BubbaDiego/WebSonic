@@ -110,20 +110,20 @@
                                 {{ position.asset_type }}
                             </td>
                             <td>{{ position.position_type }}</td>
-                            <td style="background-color: {{ position.collateral_color }}">{{ "%.2f"|format(position.collateral) }}</td>
-                            <td style="background-color: {{ position.value_color }}">{{ "%.2f"|format(position.value) }}</td>
-                            <td style="background-color: {{ position.size_color }}">{{ "%.2f"|format(position.size) }}</td>
-                            <td style="background-color: {{ position.leverage_color }}">{{ "%.2f"|format(position.leverage) }}</td>
+                            <td style="background-color: {{ position.collateral_color }}">{{ "{:,}".format(position.collateral) }}</td>
+                            <td style="background-color: {{ position.value_color }}">{{ "{:,}".format(position.value) }}</td>
+                            <td style="background-color: {{ position.size_color }}">{{ "{:,}".format(position.size) }}</td>
+                            <td style="background-color: {{ position.leverage_color }}">{{ "{:,}".format(position.leverage) }}</td>
                             <td style="background-color: {{ position.travel_percent_color }}">
                                 {% if position.current_travel_percent is not none %}
-                                    {{ "%.2f"|format(position.current_travel_percent) }}%
+                                    {{ "{:,}".format(position.current_travel_percent) }}%
                                 {% else %}
                                     N/A
                                 {% endif %}
                             </td>
                             <td style="background-color: {{ position.heat_index_color }}">
                                 {% if position.heat_points is not none %}
-                                    {{ "%.2f"|format(position.heat_points) }}
+                                    {{ "{:,}".format(position.heat_points) }}
                                 {% else %}
                                     N/A
                                 {% endif %}
@@ -151,12 +151,12 @@
                         <tr style="font-weight: bold;">
                             <td>Totals</td>
                             <td></td>
-                            <td>${{ "%.2f"|format(totals.total_collateral) }}</td>
-                            <td>${{ "%.2f"|format(totals.total_value) }}</td>
-                            <td>{{ "%.2f"|format(totals.total_size) }}</td>
-                            <td>{{ "%.2f"|format(totals.avg_leverage) }}x</td>
-                            <td>{{ "%.2f"|format(totals.avg_travel_percent) }}%</td>
-                            <td>{{ "%.2f"|format(totals.avg_heat_index) }}</td>
+                            <td>${{ "{:,}".format(totals.total_collateral) }}</td>
+                            <td>${{ "{:,}".format(totals.total_value) }}</td>
+                            <td>{{ "{:,}".format(totals.total_size) }}</td>
+                            <td>{{ "{:,}".format(totals.avg_leverage) }}x</td>
+                            <td>{{ "{:,}".format(totals.avg_travel_percent) }}%</td>
+                            <td>{{ "{:,}".format(totals.avg_heat_index) }}</td>
                             <td></td>
                         </tr>
                     </tfoot>
@@ -195,7 +195,7 @@
                                     <img src="/static/images/{{ price.asset_type | lower }}_logo.png" class="asset-logo">
                                     {{ price.asset_type }}
                                 </td>
-                                <td>{{ "%.2f"|format(price.current_price) }}</td>
+                                <td>{{ "{:,}".format(price.current_price) }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -237,7 +237,7 @@
                                 <img src="/static/images/{{ price.asset_type | lower }}_logo.png" class="asset-logo">
                                 {{ price.asset_type }}
                             </td>
-                            <td>{{ "%.2f"|format(price.current_price) }}</td>
+                            <td>{{ "{:,}".format(price.current_price) }}</td>
                             <td>{{ price.last_update_time.strftime('%Y-%m-%d %H:%M:%S') if price.last_update_time else "Never" }}</td>
                         </tr>
                         {% endfor %}
@@ -248,6 +248,11 @@
             <!-- Heat Tab -->
             <div class="tab-pane fade" id="heat-tab">
                 <h2 class="text-dark">Heat Report</h2>
+
+                <!-- Heat Display Section -->
+                <div class="heat-display">
+                    {% include 'heat_display.html' %}
+                </div>
 
                 <!-- Heat Comparison Table -->
                 <div class="table-container">
@@ -264,21 +269,21 @@
                         <tbody>
                             <tr>
                                 <td>Total Size</td>
-                                <td>{{ "%.2f"|format(balance_metrics.total_long_size) }}</td>
-                                <td>{{ "%.2f"|format(balance_metrics.total_short_size) }}</td>
-                                <td>{{ "%.2f"|format(balance_metrics.total_size) }}</td>
+                                <td>{{ "{:,}".format(balance_metrics.total_long_size) }}</td>
+                                <td>{{ "{:,}".format(balance_metrics.total_short_size) }}</td>
+                                <td>{{ "{:,}".format(balance_metrics.total_size) }}</td>
                             </tr>
                             <tr>
                                 <td>Total Value</td>
-                                <td>${{ "%.2f"|format(balance_metrics.total_long_value) }}</td>
-                                <td>${{ "%.2f"|format(balance_metrics.total_short_value) }}</td>
-                                <td>${{ "%.2f"|format(balance_metrics.total_value) }}</td>
+                                <td>${{ "{:,}".format(balance_metrics.total_long_value) }}</td>
+                                <td>${{ "{:,}".format(balance_metrics.total_short_value) }}</td>
+                                <td>${{ "{:,}".format(balance_metrics.total_value) }}</td>
                             </tr>
                             <tr>
                                 <td>Total Collateral</td>
-                                <td>${{ "%.2f"|format(balance_metrics.total_long_collateral) }}</td>
-                                <td>${{ "%.2f"|format(balance_metrics.total_short_collateral) }}</td>
-                                <td>${{ "%.2f"|format(balance_metrics.total_collateral) }}</td>
+                                <td>${{ "{:,}".format(balance_metrics.total_long_collateral) }}</td>
+                                <td>${{ "{:,}".format(balance_metrics.total_short_collateral) }}</td>
+                                <td>${{ "{:,}".format(balance_metrics.total_collateral) }}</td>
                             </tr>
                         </tbody>
                     </table>
@@ -364,3 +369,4 @@
     </script>
 </body>
 </html>
+

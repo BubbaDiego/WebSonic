@@ -34,14 +34,14 @@ def dashboard():
         balance_metrics = CalcServices().calculate_balance_metrics(positions)
     except Exception as e:
         app.logger.error(f"Error calculating balance metrics: {e}")
-        balance_metrics = None  # Handle gracefully if calculation fails
+        balance_metrics = None
 
     return render_template(
         'dashboard.html',
         positions=positions,
         prices=prices,
         totals=totals,
-        balance_metrics=balance_metrics  # Ensure this is passed to the template
+        balance_metrics=balance_metrics
     )
 
 @app.route("/refresh-data", methods=["POST"])
@@ -225,11 +225,15 @@ def delete_position(position_id):
     try:
         data_locker.cursor.execute("DELETE FROM positions WHERE id = ?", (position_id,))
         data_locker.conn.commit()
-        app.logger.debug(f"Position deleted: id={position_id}")
-        return redirect("/manage-data")
+        app.logger.info(f"Position {position_id} deleted successfully.")
+        return redirect("/dashboard")
     except Exception as e:
-        app.logger.error(f"Error deleting position: {e}")
+        app.logger.error(f"Error deleting position {position_id}: {e}")
         return jsonify({"error": f"Failed to delete position: {e}"}), 500
+
+if __name__ == "__main__":
+    app.run(debug=True)
+
 
 @app.route("/upload-positions", methods=["POST"])
 def upload_positions():
