@@ -1,7 +1,10 @@
 from flask import Flask, request, jsonify, render_template, redirect
 from data.data_locker import DataLocker  # Import your DataLocker class
+import requests
 import os
+import asyncio
 from datetime import datetime
+from prices.price_monitor import PriceMonitor
 from environment_variables import load_env_variables
 from calc_services import CalcServices
 
@@ -28,6 +31,9 @@ data_locker = DataLocker(db_path=db_path)
 def dashboard():
     positions = data_locker.read_positions()
     prices = data_locker.read_prices()
+
+
+
     totals = CalcServices.calculate_totals(positions)
 
     try:
@@ -333,6 +339,22 @@ def delete_all():
 def sync_data():
     data_locker.sync_dependent_data()
     return jsonify({"message": "Data synchronization completed successfully!"})
+@app.route('/update-prices', methods=['POST'])
+def update_prices():
+    """
+    Fetch current prices for BTC, ETH, and SOL using the PriceMonitor class.
+    """
+    try:
+        from prices.price_monitor import PriceMonitor
+        monitor = PriceMonitor()
+        asyncio.run(monitor.update_prices())
+
+        app.logger.info("Prices updated successfully using PriceMonitor.")
+        return redirect("/dashboard")
+    except Exception as e:
+        app.logger.error(f"Unexpected error while updating prices: {e}")
+        return jsonify({"error": f"Failed to update prices: {e}"}), 500
+
 
 # Administrative Tasks
 @app.route("/drop-tables", methods=["POST"])

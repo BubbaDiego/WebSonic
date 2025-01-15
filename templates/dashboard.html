@@ -24,6 +24,18 @@
             background-color: #003366;
             color: white !important;
         }
+        .main-table {
+            border: 3px solid #003366;
+        }
+        .table {
+            border: 2px solid darkblue;
+        }
+        .table th, .table td {
+            font-weight: bold;
+        }
+        .totals-row {
+            background-color: #fff9c4; /* Subtle light yellow */
+        }
         #drop-area {
             border: 2px dashed #003366;
             border-radius: 5px;
@@ -37,25 +49,6 @@
             border-color: #0056b3;
             background-color: #cce5ff;
             color: #0056b3;
-        }
-        tfoot {
-            background-color: #c8e6c9; /* Light green for totals row  */
-        }
-        .heat-bar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        .bar {
-            height: 20px;
-            margin: 5px 0;
-            border-radius: 5px;
-        }
-        .long-bar {
-            background-color: #4caf50;
-        }
-        .short-bar {
-            background-color: #f44336;
         }
     </style>
 </head>
@@ -88,7 +81,7 @@
                         <button type="submit" class="btn btn-success">Refresh Data</button>
                     </form>
                 </div>
-                <table class="table table-striped table-bordered">
+                <table class="table table-striped table-bordered" style="border: 2px solid darkblue;">
                     <thead>
                         <tr>
                             <th>📊 Asset</th>
@@ -178,71 +171,67 @@
 
             <!-- Prices Tab -->
             <div class="tab-pane fade" id="prices-tab">
+               <div class="d-flex justify-content-between align-items-center mb-3">
+                   <h2 class="text-dark">Current Prices</h2>
+                   <form method="POST" action="/update-prices" style="margin: 0;">
+                       <button type="submit" class="btn btn-primary">Update Prices</button>
+                   </form>
+               </div>
                 <!-- Current Prices Section -->
                 <div class="mb-5">
-                    <h2>Current Prices</h2>
-                    <table class="table table-striped table-bordered">
+                    <table class="table table-striped table-bordered main-table">
                         <thead>
                             <tr>
                                 <th>📊 Asset</th>
                                 <th>💰 Current Price</th>
+                                <th>📈 1-Hour %</th>
+                                <th>📉 6-Hour %</th>
+                                <th>🔄 24-Hour %</th>
+                                <th>🕒 Last Updated</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for price in prices %}
+                            {% if price.asset_type in ["BTC", "ETH", "SOL"] %}
                             <tr>
                                 <td>
                                     <img src="/static/images/{{ price.asset_type | lower }}_logo.png" class="asset-logo">
                                     {{ price.asset_type }}
                                 </td>
                                 <td>{{ "{:,}".format(price.current_price) }}</td>
+                                <td>{{ "{:.2f}".format(price.avg_1_hour) }}%</td>
+                                <td>{{ "{:.2f}".format(price.avg_6_hour) }}%</td>
+                                <td>{{ "{:.2f}".format(price.avg_24_hour) }}%</td>
+                                <td>{{ price.last_update_time.strftime('%Y-%m-%d %H:%M:%S') if price.last_update_time else "Never" }}</td>
                             </tr>
+                            {% endif %}
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
 
-                <!-- Manage Prices Section -->
-                <h2 class="text-dark">Manage Prices</h2>
-                <form method="POST" action="/add-price">
-                    <div class="mb-3">
-                        <label for="asset" class="form-label">Asset</label>
-                        <select class="form-select" id="asset" name="asset" required>
-                            <option value="Bitcoin">Bitcoin</option>
-                            <option value="Ethereum">Ethereum</option>
-                            <option value="Solana">Solana</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label for="price" class="form-label">Price</label>
-                        <input type="number" step="0.01" class="form-control" id="price" name="price" required>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Add Price</button>
-                </form>
 
-                <!-- Recent Prices Table -->
-                <h3 class="mt-4">Recent Prices</h3>
-                <table class="table table-striped table-bordered">
-                    <thead>
-                        <tr>
-                            <th>📊 Asset</th>
-                            <th>💰 Current Price</th>
-                            <th>🕒 Last Updated</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for price in prices %}
-                        <tr>
-                            <td>
-                                <img src="/static/images/{{ price.asset_type | lower }}_logo.png" class="asset-logo">
-                                {{ price.asset_type }}
-                            </td>
-                            <td>{{ "{:,}".format(price.current_price) }}</td>
-                            <td>{{ price.last_update_time.strftime('%Y-%m-%d %H:%M:%S') if price.last_update_time else "Never" }}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+            <!-- Add Asset Price Section -->
+    <div class="mt-5">
+        <h3>Add Asset Price</h3>
+        <form method="POST" action="/add-price">
+            <div class="mb-3">
+                <label for="asset" class="form-label">Asset Type</label>
+                <select id="asset" name="asset" class="form-select" required>
+                    <option value="BTC">Bitcoin</option>
+                    <option value="ETH">Ethereum</option>
+                    <option value="SOL">Solana</option>
+                </select>
+            </div>
+            <div class="mb-3">
+                <label for="price" class="form-label">Price</label>
+                <input type="number" step="0.01" id="price" name="price" class="form-control" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Add Price</button>
+        </form>
+    </div>
+
+
             </div>
 
             <!-- Heat Tab -->
@@ -257,7 +246,7 @@
                 <!-- Heat Comparison Table -->
                 <div class="table-container">
                     <h3 class="text-dark">Heat Comparison</h3>
-                    <table class="table table-striped table-bordered">
+                    <table class="table table-striped table-bordered main-table">>
                         <thead>
                             <tr>
                                 <th>📊 Metric</th>
@@ -369,4 +358,3 @@
     </script>
 </body>
 </html>
-
