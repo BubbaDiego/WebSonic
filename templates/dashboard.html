@@ -49,6 +49,7 @@
             border-color: #0056b3;
             background-color: #cce5ff;
             color: #0056b3;
+            transition: all 0.3s ease-in-out;
         }
     </style>
 </head>
@@ -169,7 +170,7 @@
     </div>
     <hr>
     <h3 class="text-dark">Add Position</h3>
-    <form method="POST" action="/add-position">
+    <form method="POST" action="/new-position">
         <div class="d-flex align-items-center gap-3">
             <div>
                 <label for="asset" class="form-label">Asset</label>
@@ -180,12 +181,19 @@
                 </select>
             </div>
             <div>
+                <label for="position-type" class="form-label">Position</label>
+                            <select class="form-select" id="position-type" name="position_type" required>
+                                <option value="Long">Long</option>
+                                <option value="Short">Short</option>
+                            </select>
+                        </div>
+                        <div>
                 <label for="collateral" class="form-label">Collateral</label>
-                <input type="number" step="0.01" class="form-control" id="collateral" name="collateral" required>
+                <input type="number" step="0.1" class="form-control" id="collateral" name="collateral" required>
             </div>
             <div>
                 <label for="size" class="form-label">Size</label>
-                <input type="number" step="0.01" class="form-control" id="size" name="size" required>
+                <input type="number" step="0.1" class="form-control" id="size" name="size" required>
             </div>
             <div class="align-self-end">
                 <button type="submit" class="btn btn-primary">Add Position</button>
@@ -327,37 +335,48 @@
         const uploadBtn = document.getElementById('upload-btn');
         let selectedFile = null;
 
+        // Highlight drop area when file is dragged over
         dropArea.addEventListener('dragover', (e) => {
             e.preventDefault();
             dropArea.classList.add('dragging');
         });
 
+        // Remove highlight when file leaves the area
         dropArea.addEventListener('dragleave', () => {
             dropArea.classList.remove('dragging');
         });
 
+        // Handle file drop
         dropArea.addEventListener('drop', (e) => {
             e.preventDefault();
             dropArea.classList.remove('dragging');
             selectedFile = e.dataTransfer.files[0];
+
             if (selectedFile && selectedFile.type === 'application/json') {
                 uploadBtn.disabled = false;
             } else {
                 alert('Please drop a valid JSON file.');
+                selectedFile = null;
+                uploadBtn.disabled = true;
             }
         });
 
+        // Allow file selection via click
         dropArea.addEventListener('click', () => fileInput.click());
 
         fileInput.addEventListener('change', () => {
             selectedFile = fileInput.files[0];
+
             if (selectedFile && selectedFile.type === 'application/json') {
                 uploadBtn.disabled = false;
             } else {
                 alert('Please select a valid JSON file.');
+                selectedFile = null;
+                uploadBtn.disabled = true;
             }
         });
-                uploadBtn.addEventListener('click', () => {
+
+        uploadBtn.addEventListener('click', () => {
             if (selectedFile) {
                 const formData = new FormData();
                 formData.append('file', selectedFile);
@@ -366,15 +385,18 @@
                     method: 'POST',
                     body: formData,
                 })
-                .then((response})
-                .then((response) => {
-                    if (response.ok) {
-                        alert('Positions imported successfully!');
-                        location.reload();
-                    } else {
-                        alert('Failed to import positions.');
-                    }
-                });
+                    .then((response) => {
+                        if (response.ok) {
+                            alert('Positions imported successfully!');
+                            location.reload();
+                        } else {
+                            alert('Failed to import positions.');
+                        }
+                    })
+                    .catch((error) => {
+                        console.error('Error during upload:', error);
+                        alert('An error occurred during the upload.');
+                    });
             }
         });
 

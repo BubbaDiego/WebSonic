@@ -1,11 +1,8 @@
 from flask import Flask, request, jsonify, render_template, redirect
 from data.data_locker import DataLocker  # Import your DataLocker class
-import requests
 import os
-import asyncio
-import pytz
+import uuid
 from datetime import datetime
-from prices.price_monitor import PriceMonitor
 from environment_variables import load_env_variables
 from calc_services import CalcServices
 
@@ -32,9 +29,6 @@ data_locker = DataLocker(db_path=db_path)
 def dashboard():
     positions = data_locker.read_positions()
     prices = data_locker.read_prices()
-
-
-
     totals = CalcServices.calculate_totals(positions)
 
     try:
@@ -66,6 +60,51 @@ def dashboard():
         totals=totals,
         balance_metrics=balance_metrics
     )
+
+@app.route("/new-position", methods=["POST"])
+def new_position():
+    try:
+        # Extract data from the form
+        asset = request.form.get("asset")
+        position_type = request.form.get("position_type")  # Extract position type
+        collateral = float(request.form.get("collateral", 0))
+        size = float(request.form.get("size", 0))
+
+        # Validate the input values
+        if not asset or not position_type or collateral <= 0 or size <= 0:
+            raise ValueError("Invalid input values for position creation.")
+
+        # Create the position dictionary
+        position = {
+            "id": f"pos_{uuid.uuid4().hex[:8]}",
+            "asset_type": asset,
+            "position_type": position_type,
+            "entry_price": 0.0,
+            "liquidation_price": 0.0,
+            "current_travel_percent": 0.0,
+            "value": size * collateral,
+            "collateral": collateral,
+            "size": size,
+            "wallet": "Default",
+            "leverage": size / collateral if collateral else 1.0,
+            "last_updated": datetime.now(),
+            "current_price": 0.0,
+            "liquidation_distance": 0.0,
+        }
+
+        # Pass to DataLocker for storage
+        data_locker.create_position(position)
+
+        # Redirect to dashboard after successful creation
+        return redirect("/dashboard")
+
+    except ValueError as ve:
+        current_app.logger.error(f"Validation error: {ve}")
+        return jsonify({"error": str(ve)}), 400
+
+    except Exception as e:
+        current_app.logger.error(f"Error adding position: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/refresh-data", methods=["POST"])
@@ -224,10 +263,6 @@ def view_positions():
 @app.route("/add-position", methods=["POST"])
 def add_position():
     data = request.json
-
-    print("HIIIIIIIIIIIIIII")
-    print(asset)
-
     position = {
         "id": data.get("id"),
         "asset_type": data.get("asset_type"),
@@ -328,6 +363,54 @@ def delete_price(asset):
     data_locker.delete_price(asset)
     return redirect("/prices")
 
+from flask import current_app  # Add this at the top with other imports
+
+@app.route('/create-position', methods=['POST'])
+def create_position():
+    try:
+        # Extract data from the form
+        asset = request.form.get("asset")
+        position_type = request.form.get("position_type")  # Extract position type
+        collateral = float(request.form.get("collateral", 0))
+        size = float(request.form.get("size", 0))
+
+        # Validate the input values
+        if not asset or not position_type or collateral <= 0 or size <= 0:
+            raise ValueError("Invalid input values for position creation.")
+
+        # Create the position dictionary
+        position = {
+            "id": f"pos_{uuid.uuid4().hex[:8]}",
+            "asset_type": asset,
+            "position_type": position_type,
+            "entry_price": 0.0,
+            "liquidation_price": 0.0,
+            "current_travel_percent": 0.0,
+            "value": size * collateral,
+            "collateral": collateral,
+            "size": size,
+            "wallet": "Default",
+            "leverage": size / collateral if collateral else 1.0,
+            "last_updated": datetime.now(),
+            "current_price": 0.0,
+            "liquidation_distance": 0.0,
+        }
+
+        # Pass to DataLocker for storage
+        data_locker.create_position(position)
+
+        # Redirect to dashboard after successful creation
+        return redirect("/dashboard")
+
+    except ValueError as ve:
+        current_app.logger.error(f"Validation error: {ve}")
+        return jsonify({"error": str(ve)}), 400
+
+    except Exception as e:
+        current_app.logger.error(f"Error adding position: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/delete-all", methods=["POST"])
 def delete_all():
     try:
@@ -344,22 +427,6 @@ def delete_all():
 def sync_data():
     data_locker.sync_dependent_data()
     return jsonify({"message": "Data synchronization completed successfully!"})
-@app.route('/update-prices', methods=['POST'])
-def update_prices():
-    """
-    Fetch current prices for BTC, ETH, and SOL using the PriceMonitor class.
-    """
-    try:
-        from prices.price_monitor import PriceMonitor
-        monitor = PriceMonitor()
-        asyncio.run(monitor.update_prices())
-
-        app.logger.info("Prices updated successfully using PriceMonitor.")
-        return redirect("/dashboard")
-    except Exception as e:
-        app.logger.error(f"Unexpected error while updating prices: {e}")
-        return jsonify({"error": f"Failed to update prices: {e}"}), 500
-
 
 # Administrative Tasks
 @app.route("/drop-tables", methods=["POST"])

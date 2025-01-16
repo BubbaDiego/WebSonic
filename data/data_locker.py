@@ -22,6 +22,7 @@ from rich.console import Console
 import logging
 import subprocess
 from environment_variables import load_env_variables
+from flask import request, current_app
 from calc_services import CalcServices
 
 
@@ -477,40 +478,47 @@ class DataLocker:
 
     # CRUD Operations for Positions
     def create_position(self, position: Position):
+        #from data.data_locker import AssetType, Position  # Import required classes
+
         try:
-            self.cursor.execute('''
-                INSERT INTO positions (id, asset_type, position_type, entry_price, liquidation_price, current_travel_percent, value, collateral, size, wallet, leverage, last_updated, current_price, liquidation_distance)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                position.id,
-                position.asset_type.value,
-                position.position_type,
-                position.entry_price,
-                position.liquidation_price,
-                position.current_travel_percent,
-                position.value,
-                position.collateral,
-                position.size,
-                position.wallet,
-                position.leverage,
-                position.last_updated.isoformat(),
-                position.current_price,
-                position.liquidation_distance
-            ))
-            self.conn.commit()
-            #self.logger.debug(f"Position created: {position.to_dict()}")
-        except sqlite3.IntegrityError as e:
-            if "UNIQUE constraint failed: positions.id" in str(e):
-                new_id = f"pos_{uuid.uuid4().hex[:8]}"
-                self.logger.warning(f"Duplicate ID detected: {position.id}. Generating a new ID: {new_id}")
-                position.id = new_id
-                self.create_position(position)
-            else:
-                self.logger.error(f"IntegrityError creating position: {e}", exc_info=True)
-                raise
+            # Extract data from the form
+            asset = request.form.get("asset")
+            position_type = request.form.get("position_type")
+            collateral = float(request.form.get("collateral"))
+            size = float(request.form.get("size"))
+
+            # Map asset to AssetType
+            asset_enum = AssetType[asset.upper()] if asset.upper() in AssetType.__members__ else None
+            if not asset_enum:
+                raise ValueError(f"Unsupported asset type: {asset}")
+
+            # Create a Position object
+            position = Position(
+                id=f"pos_{uuid.uuid4().hex[:8]}",
+                asset_type=asset_enum,
+                position_type=position_type,
+                entry_price=0.0,
+                liquidation_price=0.0,
+                current_travel_percent=0.0,
+                value=collateral * size,  # Example calculation
+                collateral=collateral,
+                size=size,
+                wallet="Default",
+                leverage=size / collateral if collateral else 1.0,
+                last_updated=datetime.now(),
+                alert_reference_id=None,
+                hedge_buddy_id=None,
+                current_price=None,
+                liquidation_distance=None,
+            )
+
+            # Call DataLocker to store the position
+            data_locker.create_position(position)
+            return redirect("/dashboard")
+
         except Exception as e:
-            self.logger.error(f"Error creating position: {e}", exc_info=True)
-            raise
+            app.logger.error(f"Error adding position: {e}")
+            return jsonify({"error": str(e)}), 500
 
     def add_position(self, position):
         """Add a new position to the database."""
@@ -747,54 +755,30 @@ class DataLocker:
         """
         Update all positions in the database using CalcServices for calculations.
         """
-        calc = CalcServices()
-        self.logger.info("Starting sync with CalcServices...")
-
         try:
-            # Fetch all positions from the database
             self.cursor.execute("SELECT * FROM positions")
             positions = [dict(row) for row in self.cursor.fetchall()]
 
             for position in positions:
-                try:
-                    # Validate position
-                    calc.validate_position(position)
+                # Skip positions with missing critical fields
+                if any(position[field] is None for field in ["collateral", "size", "entry_price"]):
+                    self.logger.warning(f"Skipping position with missing fields: {position}")
+                    continue
 
-                    # Calculate dependent fields
-                    position["value"] = calc.calculate_value(position)
-                    position["current_travel_percent"] = calc.calculate_travel_percent(
-                        entry_price=position["entry_price"],
-                        current_price=position["current_price"],
-                        liquidation_price=position["liquidation_price"]
-                    )
-                    position["heat_points"] = calc.calculate_heat_points(position)
+                # Perform calculations
+                position["value"] = position["collateral"] * position["size"]
+                position["current_travel_percent"] = 0.0  # Example placeholder logic
 
-                    # Update the database with calculated values
-                    self.cursor.execute(
-                        """
-                        UPDATE positions
-                        SET value = ?,
-                            current_travel_percent = ?,
-                            heat_points = ?
-                        WHERE id = ?
-                        """,
-                        (
-                            position["value"],
-                            position["current_travel_percent"],
-                            position["heat_points"],
-                            position["id"]
-                        )
-                    )
-                except ValueError as e:
-                    self.logger.warning(f"Skipping position ID {position.get('id')}: {e}")
-                    continue  # Skip invalid rows
+                # Update the database
+                self.cursor.execute('''
+                    UPDATE positions
+                    SET value = ?, current_travel_percent = ?
+                    WHERE id = ?
+                ''', (position["value"], position["current_travel_percent"], position["id"]))
 
             self.conn.commit()
-            self.logger.info("Sync with CalcServices completed successfully.")
         except Exception as e:
-            self.logger.error(f"Error during sync with CalcServices: {e}", exc_info=True)
-            raise
-
+            self.logger.error(f"Error syncing calc services: {e}", exc_info=True)
 
     def sync_dependent_data(self):
         """
