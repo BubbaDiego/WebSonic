@@ -155,18 +155,45 @@
                     </tfoot>
                 </table>
 
-                <!-- Drag and Drop JSON Upload -->
-                <h3 class="mt-4">Import Positions ⬇️</h3>
-                <div id="drop-area">
-                    <p>Drag and drop a JSON file here, or click to select a file</p>
-                    <input type="file" id="file-input" class="form-control" accept=".json" style="display: none;">
-                </div>
-                <div class="d-flex mt-3">
-                    <button id="upload-btn" class="btn btn-primary me-2" disabled>Upload Positions</button>
-                    <form method="POST" action="/delete-all" style="margin: 0;">
-                        <button type="submit" class="btn btn-danger">Delete All</button>
-                    </form>
-                </div>
+                <div class="rounded-container mb-5" style="border: 1px solid #888; background-color: #f9f9f9; border-radius: 8px; padding: 20px;">
+    <h3 class="text-dark">Import Positions</h3>
+    <div id="drop-area" style="border: 2px dashed #003366; border-radius: 5px; padding: 20px; text-align: center; background-color: #e6f0ff; color: #003366;">
+        Drag and drop a JSON file here, or click to select a file
+        <input type="file" id="file-input" class="form-control" accept=".json" style="display: none;">
+    </div>
+    <div class="d-flex justify-content-between align-items-center mt-3">
+        <button id="upload-btn" class="btn btn-primary me-2" disabled>Upload Positions</button>
+        <form method="POST" action="/delete-all" style="margin: 0;">
+            <button type="submit" class="btn btn-danger">Delete All</button>
+        </form>
+    </div>
+    <hr>
+    <h3 class="text-dark">Add Position</h3>
+    <form method="POST" action="/add-position">
+        <div class="d-flex align-items-center gap-3">
+            <div>
+                <label for="asset" class="form-label">Asset</label>
+                <select class="form-select" id="asset" name="asset" required>
+                    <option value="Bitcoin">Bitcoin</option>
+                    <option value="Ethereum">Ethereum</option>
+                    <option value="Solana">Solana</option>
+                </select>
+            </div>
+            <div>
+                <label for="collateral" class="form-label">Collateral</label>
+                <input type="number" step="0.01" class="form-control" id="collateral" name="collateral" required>
+            </div>
+            <div>
+                <label for="size" class="form-label">Size</label>
+                <input type="number" step="0.01" class="form-control" id="size" name="size" required>
+            </div>
+            <div class="align-self-end">
+                <button type="submit" class="btn btn-primary">Add Position</button>
+            </div>
+        </div>
+    </form>
+</div>
+
             </div>
 
             <!-- Prices Tab -->
@@ -330,8 +357,7 @@
                 alert('Please select a valid JSON file.');
             }
         });
-
-        uploadBtn.addEventListener('click', () => {
+                uploadBtn.addEventListener('click', () => {
             if (selectedFile) {
                 const formData = new FormData();
                 formData.append('file', selectedFile);
@@ -340,6 +366,7 @@
                     method: 'POST',
                     body: formData,
                 })
+                .then((response})
                 .then((response) => {
                     if (response.ok) {
                         alert('Positions imported successfully!');
