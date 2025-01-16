@@ -13,6 +13,7 @@ import sqlite3
 import random
 import json
 import uuid
+from pytz import timezone
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 from threading import local
@@ -357,8 +358,19 @@ class DataLocker:
         self.logger.debug("Fetching positions from the database")
         self.cursor.execute("SELECT * FROM positions")
         rows = self.cursor.fetchall()
-        self.logger.debug(f"Fetched positions: {rows}")
-        return [dict(row) for row in rows]
+        valid_positions = []
+        for row in rows:
+            position = dict(row)
+            missing_fields = [
+                field for field in ["asset_type", "entry_price", "current_price", "liquidation_price"]
+                if not position.get(field)
+            ]
+            if missing_fields:
+                self.logger.warning(
+                    f"Skipping position ID {position.get('id', 'unknown')}: Missing fields {missing_fields}")
+            else:
+                valid_positions.append(position)
+        return valid_positions
 
     def update_price(self, price_id: int, new_price: float):
         try:
@@ -503,20 +515,23 @@ class DataLocker:
     def add_position(self, position):
         """Add a new position to the database."""
         try:
-            # Check if the asset already exists in the database
-            self.cursor.execute('SELECT 1 FROM positions WHERE asset = ?', (position["asset"],))
+            # Normalize field names
+            position["asset_type"] = position.pop("asset", position.get("asset_type"))
+
+            # Check if the asset_type already exists in the database
+            self.cursor.execute('SELECT 1 FROM positions WHERE asset_type = ?', (position["asset_type"],))
             if self.cursor.fetchone():
-                print(f"Position for asset {position['asset']} already exists. Skipping.")
+                self.logger.info(f"Position for asset_type {position['asset_type']} already exists. Skipping.")
                 return
 
             # Insert the new position into the database
             self.cursor.execute('''
                 INSERT INTO positions (
-                    asset, position_type, value, size, collateral, entry_price, 
+                    asset_type, position_type, value, size, collateral, entry_price, 
                     mark_price, liquidation_price
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
-                position["asset"],
+                position["asset_type"],
                 position["position_type"],
                 position["value"],
                 position["size"],
@@ -526,9 +541,9 @@ class DataLocker:
                 position["liquidation_price"]
             ))
             self.conn.commit()
-            print(f"Position added to database: {position}")
+            self.logger.info(f"Position added to database: {position}")
         except sqlite3.Error as e:
-            print(f"Error adding position to database: {e}")
+            self.logger.error(f"Error adding position to database: {e}", exc_info=True)
 
     def read_positions(self):
         """Fetch all positions from the database in a thread-safe manner."""
@@ -780,56 +795,6 @@ class DataLocker:
             self.logger.error(f"Error during sync with CalcServices: {e}", exc_info=True)
             raise
 
-    def sync_calc_services2(self):
-        """
-        Update all positions in the database using CalcServices for calculations.
-        """
-        from utils.calc_services import CalcServices  # Import the centralized class
-
-        calc = CalcServices()
-        self.logger.info("Starting sync with CalcServices...")
-
-        try:
-            # Fetch all positions from the database
-            self.cursor.execute("SELECT * FROM positions")
-            positions = [dict(row) for row in self.cursor.fetchall()]
-
-            updated_positions = []
-            for position in positions:
-                # Process each position using CalcServices
-                calc.validate_position(position)  # Ensure position data is valid
-                position["heat_points"] = calc.calculate_heat_points(position)
-                position["travel_percent"] = calc.calculate_travel_percent(
-                    position["entry_price"], position["current_price"], position["liquidation_price"]
-                )
-                position["liquid_distance"] = calc.calculate_liquid_distance(
-                    position["current_price"], position["liquidation_price"]
-                )
-                position["value"] = calc.calculate_value(position)
-
-                updated_positions.append(position)
-
-                # Update the database with calculated values
-                self.cursor.execute(
-                    """
-                    UPDATE positions
-                    SET heat_points = ?, travel_percent = ?, liquid_distance = ?, value = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        position["heat_points"],
-                        position["travel_percent"],
-                        position["liquid_distance"],
-                        position["value"],
-                        position["id"],
-                    ),
-                )
-
-            self.conn.commit()
-            self.logger.info("Sync with CalcServices completed successfully.")
-        except Exception as e:
-            self.logger.error(f"Error during sync with CalcServices: {e}")
-            raise
 
     def sync_dependent_data(self):
         """
@@ -838,61 +803,62 @@ class DataLocker:
         This ensures the database reflects up-to-date computed values.
         """
         try:
+            pacific_tz = timezone("US/Pacific")
+
+            def convert_to_pst(dt):
+                if dt:
+                    return dt.astimezone(pacific_tz).strftime('%I:%M %p PST')
+                return "Never"
+
             # Fetch all positions from the database
+            self.logger.debug("Fetching positions from the database")
             positions = self.read_positions()
             prices = self.read_prices()
             price_dict = {price['asset_type']: price['current_price'] for price in prices}
 
             for position in positions:
-                # Log any missing or invalid fields
-                missing_fields = [
-                    key for key in ["entry_price", "current_price", "liquidation_price"]
-                    if not position.get(key)
-                ]
+                # Validate and log missing fields
+                required_fields = ["asset_type", "entry_price", "current_price", "liquidation_price"]
+                missing_fields = [field for field in required_fields if not position.get(field)]
                 if missing_fields:
-                    self.logger.warning(f"Position ID {position['id']} missing fields: {missing_fields}")
+                    self.logger.warning(f"Position ID {position.get('id', 'unknown')} missing fields: {missing_fields}")
                     continue
 
-                # Update current price from the database
-                position['current_price'] = price_dict.get(position['asset_type'], None)
-                if not position['current_price']:
+                # Update current price using the price dictionary
+                position['current_price'] = price_dict.get(position['asset_type'], 0)
+                if position['current_price'] == 0:
                     self.logger.warning(f"Missing current price for asset: {position['asset_type']}")
                     continue
 
-                # Update calculated fields
-                position['value'] = self.calculate_value(position)
-                position['current_travel_percent'] = self.calculate_travel_percent(
-                    entry_price=position['entry_price'],
-                    current_price=position['current_price'],
-                    liquidation_price=position['liquidation_price']
-                ) or 0
-                position['liquidation_distance'] = self.calculate_liquid_distance(
-                    current_price=position['current_price'],
-                    liquidation_price=position['liquidation_price']
-                ) or 0
-                position['heat_points'] = self.calculate_heat_points(position) or 0
+                self.sync_calc_services()
 
-                # Save updated position back to the database
-                self.cursor.execute('''
-                    UPDATE positions
-                    SET current_price = ?,
-                        value = ?,
-                        current_travel_percent = ?,
-                        liquidation_distance = ?,
-                        heat_points = ?
-                    WHERE id = ?
-                ''', (
-                    position['current_price'],
-                    position['value'],
-                    position['current_travel_percent'],
-                    position['liquidation_distance'],
-                    position['heat_points'],
-                    position['id']
-                ))
+                # Update the database with recalculated values
+                try:
+                    self.cursor.execute('''
+                        UPDATE positions
+                        SET current_price = ?,
+                            value = ?,
+                            current_travel_percent = ?,
+                            liquidation_distance = ?,
+                            heat_points = ?,
+                            last_updated = ?
+                        WHERE id = ?
+                    ''', (
+                        position['current_price'],
+                        position['value'],
+                        position['current_travel_percent'],
+                        position['liquidation_distance'],
+                        position['heat_points'],
+                        position['last_updated'],
+                        position['id']
+                    ))
+                except sqlite3.Error as db_error:
+                    self.logger.error(f"Database update failed for position ID {position.get('id', 'unknown')}: {db_error}")
 
-            # Commit changes to the database
+            # Commit all changes to the database
             self.conn.commit()
             self.logger.info("Dependent data synced successfully.")
+
         except Exception as e:
             self.logger.error(f"Error syncing dependent data: {e}", exc_info=True)
 

@@ -30,11 +30,11 @@
         .table {
             border: 2px solid darkblue;
         }
-        .table th, .table td {
-            font-weight: bold;
+        .position-summary {
+            border: 4px solid darkblue;
         }
         .totals-row {
-            background-color: #fff9c4; /* Subtle light yellow */
+            background-color: #e6ccff;
         }
         #drop-area {
             border: 2px dashed #003366;
@@ -81,7 +81,7 @@
                         <button type="submit" class="btn btn-success">Refresh Data</button>
                     </form>
                 </div>
-                <table class="table table-striped table-bordered" style="border: 2px solid darkblue;">
+                <table class="table table-striped table-bordered position-summary">
                     <thead>
                         <tr>
                             <th>📊 Asset</th>
@@ -141,7 +141,7 @@
                         {% endfor %}
                     </tbody>
                     <tfoot>
-                        <tr style="font-weight: bold;">
+                        <tr class="totals-row">
                             <td>Totals</td>
                             <td></td>
                             <td>${{ "{:,}".format(totals.total_collateral) }}</td>
@@ -202,7 +202,8 @@
                                 <td>{{ "{:.2f}".format(price.avg_1_hour) }}%</td>
                                 <td>{{ "{:.2f}".format(price.avg_6_hour) }}%</td>
                                 <td>{{ "{:.2f}".format(price.avg_24_hour) }}%</td>
-                                <td>{{ price.last_update_time.strftime('%Y-%m-%d %H:%M:%S') if price.last_update_time else "Never" }}</td>
+                                <td>{{ price.last_update_time_pst }}</td>
+
                             </tr>
                             {% endif %}
                             {% endfor %}
@@ -210,27 +211,29 @@
                     </table>
                 </div>
 
-
-            <!-- Add Asset Price Section -->
-    <div class="mt-5">
-        <h3>Add Asset Price</h3>
-        <form method="POST" action="/add-price">
-            <div class="mb-3">
-                <label for="asset" class="form-label">Asset Type</label>
-                <select id="asset" name="asset" class="form-select" required>
-                    <option value="BTC">Bitcoin</option>
-                    <option value="ETH">Ethereum</option>
-                    <option value="SOL">Solana</option>
-                </select>
-            </div>
-            <div class="mb-3">
-                <label for="price" class="form-label">Price</label>
-                <input type="number" step="0.01" id="price" name="price" class="form-control" required>
-            </div>
-            <button type="submit" class="btn btn-primary">Add Price</button>
-        </form>
-    </div>
-
+                <!-- Manual Price Addition -->
+                <div class="mb-5">
+                    <h3 class="text-dark">Add a New Price</h3>
+                    <form method="POST" action="/add-price">
+                        <div class="row mb-3">
+                            <div class="col-md-4">
+                                <label for="asset" class="form-label">Asset</label>
+                                <select class="form-select" id="asset" name="asset" required>
+                                    <option value="Bitcoin">Bitcoin</option>
+                                    <option value="Ethereum">Ethereum</option>
+                                    <option value="Solana">Solana</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="price" class="form-label">Price</label>
+                                <input type="number" step="0.01" class="form-control" id="price" name="price" required>
+                            </div>
+                            <div class="col-md-4 d-flex align-items-end">
+                                <button type="submit" class="btn btn-primary w-100">Add Price</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
 
             </div>
 
@@ -246,7 +249,7 @@
                 <!-- Heat Comparison Table -->
                 <div class="table-container">
                     <h3 class="text-dark">Heat Comparison</h3>
-                    <table class="table table-striped table-bordered main-table">>
+                    <table class="table table-striped table-bordered main-table">
                         <thead>
                             <tr>
                                 <th>📊 Metric</th>

@@ -66,49 +66,19 @@ class CalcServices:
         heat_points = (size * leverage) / collateral
         return round(heat_points, 2)
 
-    @staticmethod
-    def calculate_totals(positions):
+    def calculate_value(self, position: dict) -> float:
         """
-        Calculate totals and averages for positions.
+        Calculate position value based on size and current price.
         """
-        total_size = total_value = total_collateral = total_heat_index = 0
-        total_heat_index_count = 0
-        weighted_leverage_sum = weighted_travel_percent_sum = 0
+        size = position.get("size", 0)
+        current_price = position.get("current_price", 0)
+        position_type = position.get("position_type", "long").lower()
 
-        for pos in positions:
-            try:
-                size = pos.get('size', 0) or 0
-                value = pos.get('value', 0) or 0
-                collateral = pos.get('collateral', 0) or 0
-                leverage = pos.get('leverage', 0) or 0
-                travel_percent = pos.get('current_travel_percent', 0) or 0
-                heat_index = pos.get('heat_points', 0) or 0
-
-                total_size += size
-                total_value += value
-                total_collateral += collateral
-
-                if heat_index:
-                    total_heat_index += heat_index
-                    total_heat_index_count += 1
-
-                weighted_leverage_sum += leverage * size
-                weighted_travel_percent_sum += travel_percent * size
-            except Exception as e:
-                print(f"Error calculating totals for position {pos.get('id', 'unknown')}: {e}")
-
-        avg_heat_index = total_heat_index / total_heat_index_count if total_heat_index_count else 0
-        avg_leverage = weighted_leverage_sum / total_size if total_size else 0
-        avg_travel_percent = weighted_travel_percent_sum / total_size if total_size else 0
-
-        return {
-            "total_size": total_size,
-            "total_value": total_value,
-            "total_collateral": total_collateral,
-            "avg_leverage": avg_leverage,
-            "avg_travel_percent": avg_travel_percent,
-            "avg_heat_index": avg_heat_index
-        }
+        if position_type == "long":
+            return round(size * current_price, 2)
+        elif position_type == "short":
+            return round(size * (2 * position.get("entry_price", 0) - current_price), 2)
+        return 0.0
 
     def get_color(self, value: float, metric: str) -> str:
         """
@@ -127,7 +97,7 @@ class CalcServices:
         """
         Validate a position's required fields and ensure no invalid values.
         """
-        required_fields = ["asset_type", "position_type", "leverage", "value", "size", "collateral", "entry_price"]
+        required_fields = ["asset", "position_type", "leverage", "value", "size", "collateral", "entry_price"]
         missing_fields = [field for field in required_fields if field not in position]
 
         if missing_fields:
@@ -161,40 +131,4 @@ class CalcServices:
             processed_positions.append(pos)
 
         return processed_positions
-
-    def calculate_balance_metrics(self, positions: List[Dict]) -> Dict:
-        """
-        Calculate metrics for the balance report (short vs. long comparisons).
-        """
-        total_short_size = total_short_collateral = total_short_value = 0
-        total_long_size = total_long_collateral = total_long_value = 0
-
-        for pos in positions:
-            size = pos.get("size", 0)
-            collateral = pos.get("collateral", 0)
-            value = pos.get("value", 0)
-            if pos["position_type"].lower() == "short":
-                total_short_size += size
-                total_short_collateral += collateral
-                total_short_value += value
-            elif pos["position_type"].lower() == "long":
-                total_long_size += size
-                total_long_collateral += collateral
-                total_long_value += value
-
-        total_size = total_short_size + total_long_size
-        total_collateral = total_short_collateral + total_long_collateral
-        total_value = total_short_value + total_long_value
-
-        return {
-            "total_short_size": total_short_size,
-            "total_long_size": total_long_size,
-            "total_short_collateral": total_short_collateral,
-            "total_long_collateral": total_long_collateral,
-            "total_short_value": total_short_value,
-            "total_long_value": total_long_value,
-            "total_size": total_size,
-            "total_collateral": total_collateral,
-            "total_value": total_value
-        }
 

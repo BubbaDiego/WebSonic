@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Price Display</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .table {
+            border: 2px solid darkblue;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-3">
+        <!-- Current Prices Section -->
+        <h2>Current Prices</h2>
+        <table class="table table-bordered">
+            <thead>
+                <tr>
+                    <th>📊 Asset</th>
+                    <th>💰 Current Price</th>
+                    <th>↗️ 1h Change (%)</th>
+                    <th>↗️ 6h Change (%)</th>
+                    <th>↗️ 24h Change (%)</th>
+                    <th>🕒 Last Updated</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for price in prices %}
+                <tr>
+                    <td>{{ price.asset }}</td>
+                    <td>${{ "%.2f"|format(price.get('current_price', 0)) }}</td>
+                    <td style="color: {% if price.get('1hr_change', 0) > 0 %}green{% else %}red{% endif %};">
+                        {{ "%.2f"|format(price.get('1hr_change', 0)) }}%
+                    </td>
+                    <td style="color: {% if price.get('6hr_change', 0) > 0 %}green{% else %}red{% endif %};">
+                        {{ "%.2f"|format(price.get('6hr_change', 0)) }}%
+                    </td>
+                    <td style="color: {% if price.get('24hr_change', 0) > 0 %}green{% else %}red{% endif %};">
+                        {{ "%.2f"|format(price.get('24hr_change', 0)) }}%
+                    </td>
+                    <td>{{ price.get('last_updated', 'N/A') }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>

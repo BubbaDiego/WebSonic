@@ -3,6 +3,7 @@ from data.data_locker import DataLocker  # Import your DataLocker class
 import requests
 import os
 import asyncio
+import pytz
 from datetime import datetime
 from prices.price_monitor import PriceMonitor
 from environment_variables import load_env_variables
@@ -223,6 +224,10 @@ def view_positions():
 @app.route("/add-position", methods=["POST"])
 def add_position():
     data = request.json
+
+    print("HIIIIIIIIIIIIIII")
+    print(asset)
+
     position = {
         "id": data.get("id"),
         "asset_type": data.get("asset_type"),
