@@ -1,97 +1,89 @@
-import aiohttp
+# prices/price_monitor.py
+
 import asyncio
 import logging
-from datetime import datetime
-from data.data_locker import DataLocker
+from data.data_locker import DataLocker  # Correct import
+from data.config import AppConfig
+from typing import Dict, List, Optional
+
+logger = logging.getLogger("PriceMonitorLogger")
+
 
 class PriceMonitor:
-    def __init__(self):
-        self.logger = logging.getLogger("PriceMonitorLogger")
-        self.logger.setLevel(logging.DEBUG)
+    def __init__(self, config_path: str = 'sonic_config.json'):
+        self.config_path = config_path
+        self.config = self.load_config()
+        self.setup_logging()
+        self.assets = self.config.price_config.assets
+        self.currency = self.config.price_config.currency
+        self.data_locker = None  # Will be initialized asynchronously
 
-        handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-        self.logger.addHandler(handler)
+    def load_config(self) -> AppConfig:
+        config = AppConfig.load(self.config_path)
+        return config
 
-        self.data_locker = DataLocker()
-        self.logger.info("PriceMonitor initialized for headless mode.")
-
-    async def fetch_prices_from_coingecko(self):
-        url = "https://api.coingecko.com/api/v3/simple/price"
-        params = {"ids": "bitcoin,ethereum,solana", "vs_currencies": "usd"}
-        return await self._fetch_prices(url, params, "CoinGecko")
-
-    async def fetch_prices_from_kucoin(self):
-        url = "https://api.kucoin.com/api/v1/prices"
-        return await self._fetch_prices(url, {}, "KuCoin")
-
-    async def fetch_prices_from_coinmarketcap(self):
-        url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest"
-        headers = {"X-CMC_PRO_API_KEY": "your_coinmarketcap_api_key"}
-        return await self._fetch_prices(url, {}, "CoinMarketCap", headers)
-
-    async def _fetch_prices(self, url, params, source_name, headers=None):
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=params, headers=headers) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        self.logger.info(f"Prices fetched successfully from {source_name}.")
-                        return data
-                    else:
-                        self.logger.error(f"Failed to fetch prices from {source_name}. Status: {response.status}")
-                        return {}
-        except Exception as e:
-            self.logger.error(f"Error during {source_name} fetch: {e}", exc_info=True)
-            return {}
-
-    def parse_prices(self, source, raw_data):
-        if source == "CoinGecko":
-            return {
-                "BTC": raw_data.get("bitcoin", {}).get("usd", 0),
-                "ETH": raw_data.get("ethereum", {}).get("usd", 0),
-                "SOL": raw_data.get("solana", {}).get("usd", 0),
-            }
-        elif source == "KuCoin":
-            return {
-                "BTC": float(raw_data.get("BTC", 0)),
-                "ETH": float(raw_data.get("ETH", 0)),
-                "SOL": float(raw_data.get("SOL", 0)),
-            }
-        elif source == "CoinMarketCap":
-            return {item["symbol"]: item["quote"]["USD"]["price"] for item in raw_data.get("data", [])}
+    def setup_logging(self):
+        # Setup logging based on system_config
+        if self.config.system_config.logging_enabled:
+            log_level = getattr(logging, self.config.system_config.log_level.upper(), logging.DEBUG)
+            logging.basicConfig(
+                level=log_level,
+                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                handlers=[
+                    logging.FileHandler(self.config.system_config.log_file),
+                    logging.StreamHandler() if self.config.system_config.console_output else logging.NullHandler()
+                ]
+            )
         else:
-            self.logger.warning(f"Unknown source for parsing prices: {source}")
-            return {}
+            logging.basicConfig(level=logging.CRITICAL)  # Suppress logs if disabled
 
-    def store_prices(self, prices, source):
+    async def initialize_monitor(self):
         try:
-            for asset, price in prices.items():
-                if price > 0:
-                    self.data_locker.insert_price(
-                        asset=asset, price=price, source=source, timestamp=datetime.now()
-                    )
-                    self.logger.info(f"Stored {asset} price from {source}: ${price:.2f}")
-                else:
-                    self.logger.warning(f"Skipping invalid price for {asset}: {price}")
+            # Initialize DataLocker
+            self.data_locker = await DataLocker.get_instance(self.config.system_config.db_path)
+            logger.info("PriceMonitor initialized with configuration.")
         except Exception as e:
-            self.logger.error(f"Error storing prices: {e}", exc_info=True)
+            logger.error(f"Failed to initialize DataLocker: {e}")
+            raise
+
+    async def get_previous_prices(self) -> Dict[str, float]:
+        try:
+            previous_prices = await self.data_locker.get_latest_prices()
+            return previous_prices
+        except AttributeError as e:
+            logger.error(f"'DataLocker' object has no attribute 'get_latest_prices': {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Error fetching previous prices: {e}")
+            raise
 
     async def update_prices(self):
-        sources = [
-            ("CoinGecko", self.fetch_prices_from_coingecko),
-            ("KuCoin", self.fetch_prices_from_kucoin),
-            ("CoinMarketCap", self.fetch_prices_from_coinmarketcap)
-        ]
+        try:
+            previous_prices = await self.get_previous_prices()
+            # Logic to fetch new prices from APIs
+            # For demonstration, we'll use mock data
+            new_prices = {
+                "BTC": 50000.0,
+                "ETH": 4000.0,
+                "SOL": 150.0
+            }
+            for asset, price in new_prices.items():
+                await self.data_locker.insert_or_update_price(asset, price, "CoinGecko")
+            logger.info("Prices updated successfully.")
+        except Exception as e:
+            logger.error(f"Error updating prices: {e}")
 
-        for source_name, fetch_method in sources:
-            raw_data = await fetch_method()
-            if raw_data:
-                prices = self.parse_prices(source_name, raw_data)
-                self.store_prices(prices, source_name)
-            else:
-                self.logger.warning(f"No data fetched from {source_name}. Skipping storage.")
+    async def run_monitor_loop(self):
+        while True:
+            await self.update_prices()
+            await asyncio.sleep(self.config.system_config.sonic_monitor_loop_time)
 
+
+# Main execution
 if __name__ == "__main__":
     monitor = PriceMonitor()
-    asyncio.run(monitor.update_prices())
+    try:
+        asyncio.run(monitor.initialize_monitor())
+        asyncio.run(monitor.run_monitor_loop())
+    except Exception as e:
+        logger.critical(f"PriceMonitor failed to start: {e}")
