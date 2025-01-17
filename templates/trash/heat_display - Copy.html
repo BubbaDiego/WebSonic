@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Heat Report</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f4faff;
+        }
+        .title {
+            text-align: center;
+            color: #003366;
+            font-size: 2.5rem;
+            margin-bottom: 30px;
+        }
+        .table-container {
+            margin-top: 20px;
+        }
+        .heat-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .bar {
+            height: 20px;
+            margin: 5px 0;
+            border-radius: 5px;
+        }
+        .long-bar {
+            background-color: #4caf50;
+        }
+        .short-bar {
+            background-color: #f44336;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="title">Heat Report</h1>
+
+        <!-- Heat Table -->
+        <div class="table-container">
+            <h2 class="text-dark">Heat Comparison</h2>
+            <table class="table table-striped table-bordered">
+                <thead>
+                    <tr>
+                        <th>📊 Metric</th>
+                        <th>🟢 Long</th>
+                        <th>🔴 Short</th>
+                        <th>Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Total Size</td>
+                        <td>{{ "%.2f"|format(balance_metrics.total_long_size) }}</td>
+                        <td>{{ "%.2f"|format(balance_metrics.total_short_size) }}</td>
+                        <td>{{ "%.2f"|format(balance_metrics.total_size) }}</td>
+                    </tr>
+                    <tr>
+                        <td>Total Value</td>
+                        <td>${{ "%.2f"|format(balance_metrics.total_long_value) }}</td>
+                        <td>${{ "%.2f"|format(balance_metrics.total_short_value) }}</td>
+                        <td>${{ "%.2f"|format(balance_metrics.total_value) }}</td>
+                    </tr>
+                    <tr>
+                        <td>Total Collateral</td>
+                        <td>${{ "%.2f"|format(balance_metrics.total_long_collateral) }}</td>
+                        <td>${{ "%.2f"|format(balance_metrics.total_short_collateral) }}</td>
+                        <td>${{ "%.2f"|format(balance_metrics.total_collateral) }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Heat Bars -->
+        <div class="heat-bar">
+            <h2 class="text-dark">Heat Bar</h2>
+            <div class="bar-container">
+                <div class="bar long-bar" style="width: {{ balance_metrics.total_long_size / balance_metrics.total_size * 100 if balance_metrics.total_size else 0 }}%"></div>
+                <div class="bar short-bar" style="width: {{ balance_metrics.total_short_size / balance_metrics.total_size * 100 if balance_metrics.total_size else 0 }}%"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sonic Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f4faff;
+        }
+        .title {
+            text-align: center;
+            color: #003366;
+            font-size: 2.5rem;
+            margin-bottom: 30px;
+        }
+        .asset-logo {
+            width: 30px;
+            height: 30px;
+            margin-right: 10px;
+        }
+        .nav-tabs .nav-link.active {
+            background-color: #003366;
+            color: white !important;
+        }
+        .main-table {
+            border: 3px solid #003366;
+        }
+        .table {
+            border: 2px solid darkblue;
+        }
+        .position-summary {
+            border: 4px solid darkblue;
+        }
+        .totals-row {
+            background-color: #e6ccff;
+        }
+        #drop-area {
+            border: 2px dashed #003366;
+            border-radius: 5px;
+            padding: 20px;
+            text-align: center;
+            color: #003366;
+            margin-top: 20px;
+            background-color: #e6f0ff;
+        }
+        #drop-area.dragging {
+            border-color: #0056b3;
+            background-color: #cce5ff;
+            color: #0056b3;
+            transition: all 0.3s ease-in-out;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="title">
+            <img src="/static/images/sonic.png" alt="Sonic Icon" style="width: 50px; height: 50px; vertical-align: middle;">
+            Sonic Dashboard
+        </h1>
+
+        <!-- Navigation Tabs -->
+        <ul class="nav nav-tabs mb-4">
+            <li class="nav-item">
+                <a class="nav-link active" href="#positions-tab" data-bs-toggle="tab">Positions</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="#prices-tab" data-bs-toggle="tab">Prices</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="#heat-tab" data-bs-toggle="tab">Heat</a>
+            </li>
+        </ul>
+
+        <div class="tab-content">
+            <!-- Positions Tab -->
+            <div class="tab-pane fade show active" id="positions-tab">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h2 class="text-dark">Position Summary</h2>
+                    <form method="POST" action="/refresh-data" style="margin: 0;">
+                        <button type="submit" class="btn btn-success">Refresh Data</button>
+                    </form>
+                </div>
+                <table class="table table-striped table-bordered position-summary">
+                    <thead>
+                        <tr>
+                            <th>📊 Asset</th>
+                            <th>🔖 Type</th>
+                            <th>💰 Collateral</th>
+                            <th>📈 Value</th>
+                            <th>📏 Size</th>
+                            <th>⚙️ Leverage</th>
+                            <th>📉 Travel %</th>
+                            <th>🔥 Heat Points</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for position in positions %}
+                        <tr>
+                            <td>
+                                <img src="/static/images/{{ position.asset_type | lower }}_logo.png" class="asset-logo">
+                                {{ position.asset_type }}
+                            </td>
+                            <td>{{ position.position_type }}</td>
+                            <td style="background-color: {{ position.collateral_color }}">{{ "{:,}".format(position.collateral) }}</td>
+                            <td style="background-color: {{ position.value_color }}">{{ "{:,}".format(position.value) }}</td>
+                            <td style="background-color: {{ position.size_color }}">{{ "{:,}".format(position.size) }}</td>
+                            <td style="background-color: {{ position.leverage_color }}">{{ "{:,}".format(position.leverage) }}</td>
+                            <td style="background-color: {{ position.travel_percent_color }}">
+                                {% if position.current_travel_percent is not none %}
+                                    {{ "{:,}".format(position.current_travel_percent) }}%
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </td>
+                            <td style="background-color: {{ position.heat_index_color }}">
+                                {% if position.heat_points is not none %}
+                                    {{ "{:,}".format(position.heat_points) }}
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </td>
+                            <td>
+                                <form method="POST" action="/delete-position/{{ position.id }}" style="display: inline;">
+                                    <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                                </form>
+                                <button class="btn btn-success btn-sm" onclick="enableEdit('{{ position.id }}')">Edit</button>
+                                <form id="edit-form-{{ position.id }}" method="POST" action="/edit-position/{{ position.id }}" style="display: none;">
+                                    <div class="d-flex flex-column">
+                                        <label for="size-{{ position.id }}">Size</label>
+                                        <input type="number" step="0.01" id="size-{{ position.id }}" name="size" placeholder="Size" value="{{ position.size }}" required>
+                                        <label for="collateral-{{ position.id }}">Collateral</label>
+                                        <input type="number" step="0.01" id="collateral-{{ position.id }}" name="collateral" placeholder="Collateral" value="{{ position.collateral }}" required>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary btn-sm mt-2">Save</button>
+                                    <button type="button" class="btn btn-secondary btn-sm mt-2" onclick="cancelEdit('{{ position.id }}')">Cancel</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                    <tfoot>
+                        <tr class="totals-row">
+                            <td>Totals</td>
+                            <td></td>
+                            <td>${{ "{:,}".format(totals.total_collateral) }}</td>
+                            <td>${{ "{:,}".format(totals.total_value) }}</td>
+                            <td>{{ "{:,}".format(totals.total_size) }}</td>
+                            <td>{{ "{:,}".format(totals.avg_leverage) }}x</td>
+                            <td>{{ "{:,}".format(totals.avg_travel_percent) }}%</td>
+                            <td>{{ "{:,}".format(totals.avg_heat_index) }}</td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
+                </table>
+
+                <div class="rounded-container mb-5" style="border: 1px solid #888; background-color: #f9f9f9; border-radius: 8px; padding: 20px;">
+    <h3 class="text-dark">Import Positions</h3>
+    <div id="drop-area" style="border: 2px dashed #003366; border-radius: 5px; padding: 20px; text-align: center; background-color: #e6f0ff; color: #003366;">
+        Drag and drop a JSON file here, or click to select a file
+        <input type="file" id="file-input" class="form-control" accept=".json" style="display: none;">
+    </div>
+    <div class="d-flex justify-content-between align-items-center mt-3">
+        <button id="upload-btn" class="btn btn-primary me-2" disabled>Upload Positions</button>
+        <form method="POST" action="/delete-all" style="margin: 0;">
+            <button type="submit" class="btn btn-danger">Delete All</button>
+        </form>
+    </div>
+    <hr>
+    <h3 class="text-dark">Add Position</h3>
+    <form method="POST" action="/create-position">
+        <div class="d-flex align-items-center gap-3">
+            <div>
+                <label for="asset" class="form-label">Asset</label>
+                <select class="form-select" id="asset" name="asset" required>
+                    <option value="Bitcoin">Bitcoin</option>
+                    <option value="Ethereum">Ethereum</option>
+                    <option value="Solana">Solana</option>
+                </select>
+            </div>
+            <div>
+                <label for="position-type" class="form-label">Position</label>
+                            <select class="form-select" id="position-type" name="position_type" required>
+                                <option value="Long">Long</option>
+                                <option value="Short">Short</option>
+                            </select>
+                        </div>
+                        <div>
+                <label for="collateral" class="form-label">Collateral</label>
+                <input type="number" step="0.01" class="form-control" id="collateral" name="collateral" required>
+            </div>
+            <div>
+                <label for="size" class="form-label">Size</label>
+                <input type="number" step="0.01" class="form-control" id="size" name="size" required>
+            </div>
+            <div class="align-self-end">
+                <button type="submit" class="btn btn-primary">Add Position</button>
+            </div>
+        </div>
+    </form>
+</div>
+
+            </div>
+
+            <!-- Prices Tab -->
+            <div class="tab-pane fade" id="prices-tab">
+               <div class="d-flex justify-content-between align-items-center mb-3">
+                   <h2 class="text-dark">Current Prices</h2>
+                   <form method="POST" action="/update-prices" style="margin: 0;">
+                       <button type="submit" class="btn btn-primary">Update Prices</button>
+                   </form>
+               </div>
+                <!-- Current Prices Section -->
+                <div class="mb-5">
+                    <table class="table table-striped table-bordered main-table">
+                        <thead>
+                            <tr>
+                                <th>📊 Asset</th>
+                                <th>💰 Current Price</th>
+                                <th>📈 1-Hour %</th>
+                                <th>📉 6-Hour %</th>
+                                <th>🔄 24-Hour %</th>
+                                <th>🕒 Last Updated</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for price in prices %}
+                            {% if price.asset_type in ["BTC", "ETH", "SOL"] %}
+                            <tr>
+                                <td>
+                                    <img src="/static/images/{{ price.asset_type | lower }}_logo.png" class="asset-logo">
+                                    {{ price.asset_type }}
+                                </td>
+                                <td>{{ "{:,}".format(price.current_price) }}</td>
+                                <td>{{ "{:.2f}".format(price.avg_1_hour) }}%</td>
+                                <td>{{ "{:.2f}".format(price.avg_6_hour) }}%</td>
+                                <td>{{ "{:.2f}".format(price.avg_24_hour) }}%</td>
+                                <td>{{ price.last_update_time_pst }}</td>
+
+                            </tr>
+                            {% endif %}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Manual Price Addition -->
+                <div class="mb-5">
+                    <h3 class="text-dark">Add a New Price</h3>
+                    <form method="POST" action="/add-price">
+                        <div class="row mb-3">
+                            <div class="col-md-4">
+                                <label for="asset" class="form-label">Asset</label>
+                                <select class="form-select" id="asset" name="asset" required>
+                                    <option value="Bitcoin">Bitcoin</option>
+                                    <option value="Ethereum">Ethereum</option>
+                                    <option value="Solana">Solana</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="price" class="form-label">Price</label>
+                                <input type="number" step="0.01" class="form-control" id="price" name="price" required>
+                            </div>
+                            <div class="col-md-4 d-flex align-items-end">
+                                <button type="submit" class="btn btn-primary w-100">Add Price</button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+            </div>
+
+            <!-- Heat Tab -->
+            <div class="tab-pane fade" id="heat-tab">
+                <h2 class="text-dark">Heat Report</h2>
+
+                <!-- Heat Display Section -->
+                <div class="heat-display">
+                    {% include 'heat_display.html' %}
+                </div>
+
+                <!-- Heat Comparison Table -->
+                <div class="table-container">
+                    <h3 class="text-dark">Heat Comparison</h3>
+                    <table class="table table-striped table-bordered main-table">
+                        <thead>
+                            <tr>
+                                <th>📊 Metric</th>
+                                <th>🟢 Long</th>
+                                <th>🔴 Short</th>
+                                <th>Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Total Size</td>
+                                <td>{{ "{:,}".format(balance_metrics.total_long_size) }}</td>
+                                <td>{{ "{:,}".format(balance_metrics.total_short_size) }}</td>
+                                <td>{{ "{:,}".format(balance_metrics.total_size) }}</td>
+                            </tr>
+                            <tr>
+                                <td>Total Value</td>
+                                <td>${{ "{:,}".format(balance_metrics.total_long_value) }}</td>
+                                <td>${{ "{:,}".format(balance_metrics.total_short_value) }}</td>
+                                <td>${{ "{:,}".format(balance_metrics.total_value) }}</td>
+                            </tr>
+                            <tr>
+                                <td>Total Collateral</td>
+                                <td>${{ "{:,}".format(balance_metrics.total_long_collateral) }}</td>
+                                <td>${{ "{:,}".format(balance_metrics.total_short_collateral) }}</td>
+                                <td>${{ "{:,}".format(balance_metrics.total_collateral) }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Heat Bars -->
+                <div class="heat-bar">
+                    <h3 class="text-dark">Heat Bar</h3>
+                    <div class="bar-container">
+                        <div class="bar long-bar" style="width: {{ balance_metrics.total_long_size / balance_metrics.total_size * 100 if balance_metrics.total_size else 0 }}%"></div>
+                        <div class="bar short-bar" style="width: {{ balance_metrics.total_short_size / balance_metrics.total_size * 100 if balance_metrics.total_size else 0 }}%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const dropArea = document.getElementById('drop-area');
+        const fileInput = document.getElementById('file-input');
+        const uploadBtn = document.getElementById('upload-btn');
+        let selectedFile = null;
+
+        // Highlight drop area when file is dragged over
+        dropArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropArea.classList.add('dragging');
+        });
+
+        // Remove highlight when file leaves the area
+        dropArea.addEventListener('dragleave', () => {
+            dropArea.classList.remove('dragging');
+        });
+
+        // Handle file drop
+        dropArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropArea.classList.remove('dragging');
+            selectedFile = e.dataTransfer.files[0];
+
+            if (selectedFile && selectedFile.type === 'application/json') {
+                uploadBtn.disabled = false;
+            } else {
+                alert('Please drop a valid JSON file.');
+                selectedFile = null;
+                uploadBtn.disabled = true;
+            }
+        });
+
+        // Allow file selection via click
+        dropArea.addEventListener('click', () => fileInput.click());
+
+        fileInput.addEventListener('change', () => {
+            selectedFile = fileInput.files[0];
+
+            if (selectedFile && selectedFile.type === 'application/json') {
+                uploadBtn.disabled = false;
+            } else {
+                alert('Please select a valid JSON file.');
+                selectedFile = null;
+                uploadBtn.disabled = true;
+            }
+        });
+
+        uploadBtn.addEventListener('click', () => {
+            if (selectedFile) {
+                const formData = new FormData();
+                formData.append('file', selectedFile);
+
+                fetch('/upload-positions', {
+                    method: 'POST',
+                    body: formData,
+                })
+                    .then((response) => {
+                        if (response.ok) {
+                            alert('Positions imported successfully!');
+                            location.reload();
+                        } else {
+                            alert('Failed to import positions.');
+                        }
+                    })
+                    .catch((error) => {
+                        console.error('Error during upload:', error);
+                        alert('An error occurred during the upload.');
+                    });
+            }
+        });
+
+        function enableEdit(positionId) {
+            document.getElementById(`edit-form-${positionId}`).style.display = 'inline';
+        }
+
+        function cancelEdit(positionId) {
+            document.getElementById(`edit-form-${positionId}`).style.display = 'none';
+        }
+    </script>
+</body>
+</html>

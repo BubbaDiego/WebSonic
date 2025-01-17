@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sonic Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f4faff; /* Light blue background */
+        }
+        .title {
+            text-align: center;
+            color: #003366; /* Dark blue */
+            font-size: 2.5rem;
+            margin-bottom: 30px;
+        }
+        .asset-logo {
+            width: 30px;
+            height: 30px;
+            margin-right: 10px;
+        }
+        .nav-tabs .nav-link.active {
+            background-color: #003366;
+            color: white !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="title">
+            <img src="/static/images/hedgehog_icon.png" alt="Hedgehog Icon" style="width: 50px; height: 50px; vertical-align: middle;">
+            Sonic Dashboard
+        </h1>
+
+        <!-- Navigation Tabs -->
+        <ul class="nav nav-tabs mb-4">
+            <li class="nav-item">
+                <a class="nav-link active" href="#positions-tab" data-bs-toggle="tab">Positions</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="#prices-tab" data-bs-toggle="tab">Prices</a>
+            </li>
+        </ul>
+
+        <div class="tab-content">
+            <!-- Positions Tab -->
+            <div class="tab-pane fade show active" id="positions-tab">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h2 class="text-dark">Position Summary</h2>
+                    <form method="POST" action="/refresh-data" style="margin: 0;">
+                        <button type="submit" class="btn btn-success">Refresh Data</button>
+                    </form>
+                </div>
+                <table class="table table-striped table-bordered">
+                    <thead>
+                        <tr>
+                            <th>📊 Asset</th>
+                            <th>🔖 Type</th>
+                            <th>💰 Collateral</th>
+                            <th>📈 Value</th>
+                            <th>📏 Size</th>
+                            <th>⚙️ Leverage</th>
+                            <th>📉 Travel %</th>
+                            <th>🔥 Heat Index</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for position in positions %}
+                        <tr>
+                            <td>
+                                <img src="/static/images/{{ position.asset_type | lower }}_logo.png" class="asset-logo">
+                                {{ position.asset_type }}
+                            </td>
+                            <td>{{ position.position_type }}</td>
+                            <td style="background-color: {{ position.collateral_color }}">{{ position.collateral }}</td>
+                            <td style="background-color: {{ position.value_color }}">{{ position.value }}</td>
+                            <td style="background-color: {{ position.size_color }}">{{ position.size }}</td>
+                            <td style="background-color: {{ position.leverage_color }}">{{ position.leverage }}</td>
+                            <td style="background-color: {{ position.travel_percent_color }}">{{ position.travel_percent }}</td>
+                            <td style="background-color: {{ position.heat_index_color }}">{{ position.heat_index }}</td>
+                            <td>
+                                <!-- DELETE FORM -->
+                                <form method="POST" action="/delete-position/{{ position.id }}" style="display: inline;">
+                                    <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Prices Tab -->
+            <div class="tab-pane fade" id="prices-tab">
+                <h2 class="text-dark">Manage Prices</h2>
+                <form method="POST" action="/add-price">
+                    <div class="mb-3">
+                        <label for="asset" class="form-label">Asset</label>
+                        <select class="form-select" id="asset" name="asset" required>
+                            <option value="Bitcoin" data-logo="/static/images/bitcoin_logo.png">Bitcoin</option>
+                            <option value="Ethereum" data-logo="/static/images/eth_logo.png">Ethereum</option>
+                            <option value="Solana" data-logo="/static/images/solana_logo.png">Solana</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="price" class="form-label">Price</label>
+                        <input type="number" step="0.01" class="form-control" id="price" name="price" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Add Price</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

@@ -46,6 +46,18 @@ class CalcServices:
 
     @staticmethod
     def calculate_travel_percent(entry_price, current_price, liquidation_price, debug=False):
+        """
+        Calculate the percentage of travel between entry price and liquidation price based on the current price.
+
+        Parameters:
+            entry_price (float): The entry price of the position.
+            current_price (float): The current price of the asset.
+            liquidation_price (float): The liquidation price of the position.
+            debug (bool): Enable detailed debug logs if True.
+
+        Returns:
+            float: The travel percentage as a float. Returns 0.0 in case of an error.
+        """
         try:
             # Validate inputs
             if entry_price is None or liquidation_price is None:
@@ -58,6 +70,8 @@ class CalcServices:
             # Calculate distances
             distance = liquidation_price - entry_price
             current_travel = current_price - entry_price
+
+            debug = True # Toggle for output
 
             # Avoid division by zero
             if distance == 0:

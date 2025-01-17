@@ -1,0 +1,23 @@
+{% extends "sonic_admin.html" %}
+{% block content %}
+<h2 class="text-dark mb-4">Heat Page</h2>
+<p>This is where you'd display heat metrics.</p>
+
+<!-- For example, a table of processed_positions or something: -->
+<table class="table table-bordered">
+  <thead>
+    <tr>
+      <th>Position</th>
+      <th>Heat Something</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for pos in positions %}
+    <tr>
+      <td>{{ pos.asset_type }}</td>
+      <td>{{ pos.heat_points }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock content %}

@@ -1,0 +1,42 @@
+<!-- positions_display.html -->
+<div class="tab-pane fade show active" id="positions-tab">
+    <h2 class="text-dark">Position Summary</h2>
+    <table class="table table-striped table-bordered main-table" style="border-collapse: collapse; border: 3px solid #003366;">
+        <thead>
+            <tr>
+                <th style="border: 2px solid #003366;">📊 Asset</th>
+                <th style="border: 2px solid #003366;">🔖 Type</th>
+                <th style="border: 2px solid #003366;">💰 Collateral</th>
+                <th style="border: 2px solid #003366;">📈 Value</th>
+                <th style="border: 2px solid #003366;">📏 Size</th>
+                <th style="border: 2px solid #003366;">⚙️ Leverage</th>
+                <th style="border: 2px solid #003366;">📉 Travel %</th>
+                <th style="border: 2px solid #003366;">🔥 Heat Points</th>
+                <th style="border: 2px solid #003366;">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for position in positions %}
+            <tr>
+                <td style="border: 1px solid #dcdcdc;">{{ position.asset }}</td>
+                <td style="border: 1px solid #dcdcdc;">{{ position.position_type }}</td>
+                <td style="border: 1px solid #dcdcdc;">${{ "%.2f"|format(position.collateral) }}</td>
+                <td style="border: 1px solid #dcdcdc;">${{ "%.2f"|format(position.value) }}</td>
+                <td style="border: 1px solid #dcdcdc;">{{ "%.2f"|format(position.size) }}</td>
+                <td style="border: 1px solid #dcdcdc;">{{ "%.2f"|format(position.leverage) }}</td>
+                <td style="border: 1px solid #dcdcdc;">{{ "%.2f"|format(position.travel_percent) }}%</td>
+                <td style="border: 1px solid #dcdcdc;">{{ "%.2f"|format(position.heat_points) }}</td>
+                <td style="border: 1px solid #dcdcdc;">
+                    <button class="btn btn-primary btn-sm">Edit</button>
+                    <button class="btn btn-danger btn-sm">Delete</button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr class="totals-row" style="border: 3px solid #003366;">
+                <td colspan="9">Totals</td>
+            </tr>
+        </tfoot>
+    </table>
+</div>

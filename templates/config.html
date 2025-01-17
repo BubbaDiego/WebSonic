@@ -1,0 +1,14 @@
+{% extends "sonic_admin.html" %}
+{% block content %}
+<h2 class="text-dark mb-4">System Config</h2>
+<p>This is a placeholder for system configuration settings.</p>
+
+<form method="POST">
+  <!-- Some fields to configure your app -->
+  <div class="mb-3">
+    <label for="some_setting" class="form-label">Setting Name</label>
+    <input type="text" class="form-control" id="some_setting" name="some_setting" />
+  </div>
+  <button type="submit" class="btn btn-primary">Save</button>
+</form>
+{% endblock content %}
