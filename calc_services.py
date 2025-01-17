@@ -44,15 +44,29 @@ class CalcServices:
         """
         return round(abs(liquidation_price - current_price), 2)
 
-    def calculate_travel_percent(self, entry_price: float, current_price: float, liquidation_price: float) -> Optional[float]:
-        """
-        Calculate the travel percentage based on entry price, current price, and liquidation price.
-        """
-        denominator = abs(entry_price - liquidation_price)
-        if denominator == 0:
-            return None  # Avoid division by zero
-        travel_percent = ((current_price - entry_price) / (entry_price - liquidation_price)) * 100
-        return round(travel_percent, 2)
+    @staticmethod
+    def calculate_travel_percent(entry_price, current_price, liquidation_price):
+        try:
+            if not entry_price or not liquidation_price:
+                raise ValueError("Entry price and liquidation price must be provided.")
+
+            distance = liquidation_price - entry_price
+            current_travel = current_price - entry_price
+
+            if distance == 0:
+                raise ZeroDivisionError("Liquidation price and entry price cannot be equal.")
+
+            travel_percent = (current_travel / distance) * 100
+
+            # Debug logs for calculation details
+            print(f"Entry Price: {entry_price}, Current Price: {current_price}, Liquidation Price: {liquidation_price}")
+            print(f"Distance: {distance}, Current Travel: {current_travel}, Travel Percent: {travel_percent}")
+
+            return travel_percent
+        except Exception as e:
+            print(f"Error calculating travel percent: {e}")
+            return 0.0
+
 
     def calculate_heat_points(self, position: dict) -> Optional[float]:
         """

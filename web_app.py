@@ -61,51 +61,6 @@ def dashboard():
         balance_metrics=balance_metrics
     )
 
-@app.route("/new-position", methods=["POST"])
-def new_position():
-    try:
-        # Extract data from the form
-        asset = request.form.get("asset")
-        position_type = request.form.get("position_type")  # Extract position type
-        collateral = float(request.form.get("collateral", 0))
-        size = float(request.form.get("size", 0))
-
-        # Validate the input values
-        if not asset or not position_type or collateral <= 0 or size <= 0:
-            raise ValueError("Invalid input values for position creation.")
-
-        # Create the position dictionary
-        position = {
-            "id": f"pos_{uuid.uuid4().hex[:8]}",
-            "asset_type": asset,
-            "position_type": position_type,
-            "entry_price": 0.0,
-            "liquidation_price": 0.0,
-            "current_travel_percent": 0.0,
-            "value": size * collateral,
-            "collateral": collateral,
-            "size": size,
-            "wallet": "Default",
-            "leverage": size / collateral if collateral else 1.0,
-            "last_updated": datetime.now(),
-            "current_price": 0.0,
-            "liquidation_distance": 0.0,
-        }
-
-        # Pass to DataLocker for storage
-        data_locker.create_position(position)
-
-        # Redirect to dashboard after successful creation
-        return redirect("/dashboard")
-
-    except ValueError as ve:
-        current_app.logger.error(f"Validation error: {ve}")
-        return jsonify({"error": str(ve)}), 400
-
-    except Exception as e:
-        current_app.logger.error(f"Error adding position: {e}")
-        return jsonify({"error": str(e)}), 500
-
 
 @app.route("/refresh-data", methods=["POST"])
 def refresh_data():
@@ -254,33 +209,89 @@ def add_price():
         app.logger.error(f"Error adding price: {e}")
         return jsonify({"error": f"Failed to add price: {str(e)}"}), 500
 
-# Positions
+
+@app.route("/create-position", methods=["POST"])
+@app.route("/new-position", methods=["POST"])
+@app.route("/new-position", methods=["POST"])
+def create_position():
+    try:
+        asset = request.form.get("asset")
+        position_type = request.form.get("position_type")
+        collateral = float(request.form.get("collateral"))
+        size = float(request.form.get("size"))
+        entry_price = float(request.form.get("entry_price", 0.0))
+        liquidation_price = float(request.form.get("liquidation_price", 0.0))
+
+        # Construct the position dictionary
+        position = {
+            "id": f"pos_{uuid.uuid4().hex[:8]}",
+            "asset_type": asset,
+            "position_type": position_type,
+            "entry_price": entry_price,
+            "liquidation_price": liquidation_price,
+            "collateral": collateral,
+            "size": size,
+            "value": collateral * size,
+            "wallet": "Default",
+            "leverage": size / collateral if collateral else 1.0,
+            "current_travel_percent": 0.0,
+            "last_updated": datetime.now().isoformat(),
+            "current_price": None,
+            "liquidation_distance": None,
+        }
+
+        # Call the updated create_position method
+        data_locker.create_position(position)
+        return redirect("/dashboard")
+
+    except Exception as e:
+        app.logger.error(f"Error adding position: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/view-positions", methods=["GET"])
 def view_positions():
     positions = data_locker.read_positions()
     return jsonify(positions)
 
 @app.route("/add-position", methods=["POST"])
+@app.route("/add-position", methods=["POST"])
 def add_position():
-    data = request.json
-    position = {
-        "id": data.get("id"),
-        "asset_type": data.get("asset_type"),
-        "position_type": data.get("position_type"),
-        "entry_price": data.get("entry_price"),
-        "liquidation_price": data.get("liquidation_price"),
-        "current_travel_percent": data.get("current_travel_percent"),
-        "value": data.get("value"),
-        "collateral": data.get("collateral"),
-        "size": data.get("size"),
-        "wallet": data.get("wallet"),
-        "leverage": data.get("leverage"),
-        "last_updated": data.get("last_updated"),
-        "current_price": data.get("current_price"),
-        "liquidation_distance": data.get("liquidation_distance"),
-    }
-    data_locker.create_position(position)
-    return jsonify({"message": "Position added successfully!"})
+    try:
+        # Collect form data
+        asset = request.form.get("asset")
+        position_type = request.form.get("position_type")
+        collateral = float(request.form.get("collateral"))
+        size = float(request.form.get("size"))
+        entry_price = float(request.form.get("entry_price", 0.0))
+        liquidation_price = float(request.form.get("liquidation_price", 0.0))
+
+        # Create a single position dictionary
+        position = {
+            "id": f"pos_{uuid.uuid4().hex[:8]}",
+            "asset_type": asset,
+            "position_type": position_type,
+            "entry_price": entry_price,
+            "liquidation_price": liquidation_price,
+            "collateral": collateral,
+            "size": size,
+            "value": collateral * size,
+            "wallet": "Default",
+            "leverage": size / collateral if collateral else 1.0,
+            "current_travel_percent": 0.0,
+            "last_updated": datetime.now().isoformat(),
+            "current_price": None,
+            "liquidation_distance": None,
+        }
+
+        # Use the import method to process this single position
+        data_locker.import_portfolio_data({"positions": [position]})
+        return redirect("/dashboard")
+
+    except Exception as e:
+        app.logger.error(f"Error adding position: {e}")
+        return jsonify({"error": str(e)}), 500
+
 
 
 @app.route("/delete-position/<position_id>", methods=["POST"])
@@ -364,52 +375,6 @@ def delete_price(asset):
     return redirect("/prices")
 
 from flask import current_app  # Add this at the top with other imports
-
-@app.route('/create-position', methods=['POST'])
-def create_position():
-    try:
-        # Extract data from the form
-        asset = request.form.get("asset")
-        position_type = request.form.get("position_type")  # Extract position type
-        collateral = float(request.form.get("collateral", 0))
-        size = float(request.form.get("size", 0))
-
-        # Validate the input values
-        if not asset or not position_type or collateral <= 0 or size <= 0:
-            raise ValueError("Invalid input values for position creation.")
-
-        # Create the position dictionary
-        position = {
-            "id": f"pos_{uuid.uuid4().hex[:8]}",
-            "asset_type": asset,
-            "position_type": position_type,
-            "entry_price": 0.0,
-            "liquidation_price": 0.0,
-            "current_travel_percent": 0.0,
-            "value": size * collateral,
-            "collateral": collateral,
-            "size": size,
-            "wallet": "Default",
-            "leverage": size / collateral if collateral else 1.0,
-            "last_updated": datetime.now(),
-            "current_price": 0.0,
-            "liquidation_distance": 0.0,
-        }
-
-        # Pass to DataLocker for storage
-        data_locker.create_position(position)
-
-        # Redirect to dashboard after successful creation
-        return redirect("/dashboard")
-
-    except ValueError as ve:
-        current_app.logger.error(f"Validation error: {ve}")
-        return jsonify({"error": str(ve)}), 400
-
-    except Exception as e:
-        current_app.logger.error(f"Error adding position: {e}")
-        return jsonify({"error": str(e)}), 500
-
 
 @app.route("/delete-all", methods=["POST"])
 def delete_all():

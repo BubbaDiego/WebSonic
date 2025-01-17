@@ -477,48 +477,48 @@ class DataLocker:
             self.logger.error(f"Error deleting alert: {e}", exc_info=True)
 
     # CRUD Operations for Positions
-    def create_position(self, position: Position):
-        #from data.data_locker import AssetType, Position  # Import required classes
-
+    def create_position(self, position):
+        """
+        Adds a position to the database. Accepts a dictionary representing the position.
+        """
         try:
-            # Extract data from the form
-            asset = request.form.get("asset")
-            position_type = request.form.get("position_type")
-            collateral = float(request.form.get("collateral"))
-            size = float(request.form.get("size"))
+            # Log the position dictionary directly
+            self.logger.debug(f"Creating position: {position}")
 
-            # Map asset to AssetType
-            asset_enum = AssetType[asset.upper()] if asset.upper() in AssetType.__members__ else None
-            if not asset_enum:
-                raise ValueError(f"Unsupported asset type: {asset}")
-
-            # Create a Position object
-            position = Position(
-                id=f"pos_{uuid.uuid4().hex[:8]}",
-                asset_type=asset_enum,
-                position_type=position_type,
-                entry_price=0.0,
-                liquidation_price=0.0,
-                current_travel_percent=0.0,
-                value=collateral * size,  # Example calculation
-                collateral=collateral,
-                size=size,
-                wallet="Default",
-                leverage=size / collateral if collateral else 1.0,
-                last_updated=datetime.now(),
-                alert_reference_id=None,
-                hedge_buddy_id=None,
-                current_price=None,
-                liquidation_distance=None,
-            )
-
-            # Call DataLocker to store the position
-            data_locker.create_position(position)
-            return redirect("/dashboard")
-
+            # Insert into the database
+            self.cursor.execute('''
+                INSERT INTO positions (id, asset_type, position_type, entry_price, liquidation_price, current_travel_percent, value, collateral, size, wallet, leverage, last_updated, current_price, liquidation_distance)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                position.get("id", f"pos_{uuid.uuid4().hex[:8]}"),
+                position["asset_type"],
+                position["position_type"],
+                position.get("entry_price", 0.0),
+                position.get("liquidation_price", 0.0),
+                position.get("current_travel_percent", 0.0),
+                position.get("value", position["collateral"] * position["size"]),
+                position["collateral"],
+                position["size"],
+                position.get("wallet", "Default"),
+                position.get("leverage", position["size"] / position["collateral"] if position["collateral"] else 1.0),
+                position.get("last_updated", datetime.now().isoformat()),
+                position.get("current_price", None),
+                position.get("liquidation_distance", None),
+            ))
+            self.conn.commit()
+            self.logger.info(f"Position created successfully: {position}")
+        except sqlite3.IntegrityError as e:
+            if "UNIQUE constraint failed: positions.id" in str(e):
+                new_id = f"pos_{uuid.uuid4().hex[:8]}"
+                self.logger.warning(f"Duplicate ID detected: {position['id']}. Generating a new ID: {new_id}")
+                position["id"] = new_id
+                self.create_position(position)
+            else:
+                self.logger.error(f"IntegrityError creating position: {e}", exc_info=True)
+                raise
         except Exception as e:
-            app.logger.error(f"Error adding position: {e}")
-            return jsonify({"error": str(e)}), 500
+            self.logger.error(f"Error creating position: {e}", exc_info=True)
+            raise
 
     def add_position(self, position):
         """Add a new position to the database."""
@@ -1027,10 +1027,6 @@ def delete_menu():
             break
         else:
             console.print("[bold red]Invalid choice, please try again.[/bold red]")
-
-
-
-
 
 
 def view_bd_tables():

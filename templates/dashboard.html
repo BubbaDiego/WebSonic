@@ -35,6 +35,12 @@
         }
         .totals-row {
             background-color: #e6ccff;
+            font-weight: bold; /* Ensure bold font for totals */
+            font-size: 16px; /* Larger font for totals */
+        }
+        tbody tr td {
+            font-weight: normal; /* Ensure regular font weight for normal rows */
+            font-size: 14px; /* Regular font size for normal rows */
         }
         #drop-area {
             border: 2px dashed #003366;
@@ -103,17 +109,25 @@
                                 <img src="/static/images/{{ position.asset_type | lower }}_logo.png" class="asset-logo">
                                 {{ position.asset_type }}
                             </td>
-                            <td>{{ position.position_type }}</td>
-                            <td style="background-color: {{ position.collateral_color }}">{{ "{:,}".format(position.collateral) }}</td>
-                            <td style="background-color: {{ position.value_color }}">{{ "{:,}".format(position.value) }}</td>
-                            <td style="background-color: {{ position.size_color }}">{{ "{:,}".format(position.size) }}</td>
-                            <td style="background-color: {{ position.leverage_color }}">{{ "{:,}".format(position.leverage) }}</td>
-                            <td style="background-color: {{ position.travel_percent_color }}">
+                             <td><b>{{ position.position_type }}</b></td>
+                            <td style="background-color: {{ position.collateral_color }}"><b>{{ "{:,}".format(position.collateral) }}</b></td>
+                            <td style="background-color: {{ position.value_color }}"><b>{{ "{:,}".format(position.value) }}</b></td>
+                            <td style="background-color: {{ position.size_color }}"><b>{{ "{:,}".format(position.size) }}</b></td>
+                            <td style="background-color: {{ position.leverage_color }}"><b>{{ "{:,}".format(position.leverage) }}</b></td>
+                            <td style="background-color: {{ position.travel_percent_color }}"><b>
                                 {% if position.current_travel_percent is not none %}
                                     {{ "{:,}".format(position.current_travel_percent) }}%
                                 {% else %}
                                     N/A
                                 {% endif %}
+                            </b></td>
+                            <td style="background-color: {{ position.heat_index_color }}"><b>
+                                {% if position.heat_points is not none %}
+                                    {{ "{:,}".format(position.heat_points) }}
+                                {% else %}
+                                    N/A
+                                {% endif %}
+                            </b></td>
                             </td>
                             <td style="background-color: {{ position.heat_index_color }}">
                                 {% if position.heat_points is not none %}
@@ -130,9 +144,9 @@
                                 <form id="edit-form-{{ position.id }}" method="POST" action="/edit-position/{{ position.id }}" style="display: none;">
                                     <div class="d-flex flex-column">
                                         <label for="size-{{ position.id }}">Size</label>
-                                        <input type="number" step="0.01" id="size-{{ position.id }}" name="size" placeholder="Size" value="{{ position.size }}" required>
+                                        <input type="number" step="0.1" id="size-{{ position.id }}" name="size" placeholder="Size" value="{{ position.size }}" required>
                                         <label for="collateral-{{ position.id }}">Collateral</label>
-                                        <input type="number" step="0.01" id="collateral-{{ position.id }}" name="collateral" placeholder="Collateral" value="{{ position.collateral }}" required>
+                                        <input type="number" step="0.1" id="collateral-{{ position.id }}" name="collateral" placeholder="Collateral" value="{{ position.collateral }}" required>
                                     </div>
                                     <button type="submit" class="btn btn-primary btn-sm mt-2">Save</button>
                                     <button type="button" class="btn btn-secondary btn-sm mt-2" onclick="cancelEdit('{{ position.id }}')">Cancel</button>
@@ -143,15 +157,15 @@
                     </tbody>
                     <tfoot>
                         <tr class="totals-row">
-                            <td>Totals</td>
-                            <td></td>
-                            <td>${{ "{:,}".format(totals.total_collateral) }}</td>
-                            <td>${{ "{:,}".format(totals.total_value) }}</td>
-                            <td>{{ "{:,}".format(totals.total_size) }}</td>
-                            <td>{{ "{:,}".format(totals.avg_leverage) }}x</td>
-                            <td>{{ "{:,}".format(totals.avg_travel_percent) }}%</td>
-                            <td>{{ "{:,}".format(totals.avg_heat_index) }}</td>
-                            <td></td>
+                            <td><b>Totals</b></td>
+                            <td><b></b></td>
+                            <td><b>${{ "{:,}".format(totals.total_collateral) }}</b></td>
+                            <td><b>${{ "{:,}".format(totals.total_value) }}</b></td>
+                            <td><b>{{ "{:,}".format(totals.total_size) }}</b></td>
+                            <td><b>{{ "{:,}".format(totals.avg_leverage) }}x</b></td>
+                            <td><b>{{ "{:,}".format(totals.avg_travel_percent) }}%</b></td>
+                            <td><b>{{ "{:,}".format(totals.avg_heat_index) }}</b></td>
+                            <td><b></b></td>
                         </tr>
                     </tfoot>
                 </table>
@@ -171,35 +185,43 @@
     <hr>
     <h3 class="text-dark">Add Position</h3>
     <form method="POST" action="/new-position">
-        <div class="d-flex align-items-center gap-3">
-            <div>
-                <label for="asset" class="form-label">Asset</label>
-                <select class="form-select" id="asset" name="asset" required>
-                    <option value="Bitcoin">Bitcoin</option>
-                    <option value="Ethereum">Ethereum</option>
-                    <option value="Solana">Solana</option>
-                </select>
-            </div>
-            <div>
-                <label for="position-type" class="form-label">Position</label>
-                            <select class="form-select" id="position-type" name="position_type" required>
-                                <option value="Long">Long</option>
-                                <option value="Short">Short</option>
-                            </select>
-                        </div>
-                        <div>
-                <label for="collateral" class="form-label">Collateral</label>
-                <input type="number" step="0.1" class="form-control" id="collateral" name="collateral" required>
-            </div>
-            <div>
-                <label for="size" class="form-label">Size</label>
-                <input type="number" step="0.1" class="form-control" id="size" name="size" required>
-            </div>
-            <div class="align-self-end">
-                <button type="submit" class="btn btn-primary">Add Position</button>
-            </div>
+    <div class="d-flex align-items-center gap-3">
+        <div>
+            <label for="asset" class="form-label">Asset</label>
+            <select class="form-select" id="asset" name="asset" required>
+                <option value="Bitcoin">Bitcoin</option>
+                <option value="Ethereum">Ethereum</option>
+                <option value="Solana">Solana</option>
+            </select>
         </div>
-    </form>
+        <div>
+            <label for="position-type" class="form-label">Position</label>
+            <select class="form-select" id="position-type" name="position_type" required>
+                <option value="Long">Long</option>
+                <option value="Short">Short</option>
+            </select>
+        </div>
+        <div>
+            <label for="collateral" class="form-label">Collateral</label>
+            <input type="number" step="0.1" class="form-control" id="collateral" name="collateral" required>
+        </div>
+        <div>
+            <label for="size" class="form-label">Size</label>
+            <input type="number" step="0.1" class="form-control" id="size" name="size" required>
+        </div>
+        <div>
+            <label for="entry-price" class="form-label">Entry Price</label>
+            <input type="number" step="0.01" class="form-control" id="entry-price" name="entry_price" value="0.0" required>
+        </div>
+        <div>
+            <label for="liquidation-price" class="form-label">Liquidation Price</label>
+            <input type="number" step="0.01" class="form-control" id="liquidation-price" name="liquidation_price" value="0.0" required>
+        </div>
+        <div class="align-self-end">
+            <button type="submit" class="btn btn-primary">Add Position</button>
+        </div>
+    </div>
+</form>
 </div>
 
             </div>
