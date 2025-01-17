@@ -156,14 +156,115 @@ def prices():
 ########################################
 # HEAT
 ########################################
+def build_heat_data(positions):
+    assets = ["BTC", "ETH", "SOL"]
+    heat_data = {
+        "BTC": {"short": None, "long": None},
+        "ETH": {"short": None, "long": None},
+        "SOL": {"short": None, "long": None},
+        "totals": {
+            "short": {
+                "asset": "",
+                "type": "Short",
+                "collateral": 0,
+                "value": 0,
+                "leverage": 0,
+                "travel_percent": 0,
+                "heat_index": 0,
+                "size": 0,
+            },
+            "long": {
+                "asset": "",
+                "type": "Long",
+                "collateral": 0,
+                "value": 0,
+                "leverage": 0,
+                "travel_percent": 0,
+                "heat_index": 0,
+                "size": 0,
+            }
+        }
+    }
+
+    def aggregate_positions(positions_list, position_type):
+        if not positions_list:
+            return None
+        agg = {
+            "asset": positions_list[0].get("asset_type", ""),
+            "type": position_type,
+            "collateral": 0.0,
+            "value": 0.0,
+            "leverage": 0.0,
+            "travel_percent": 0.0,
+            "heat_index": 0.0,
+            "size": 0.0,
+        }
+        count = len(positions_list)
+        for pos in positions_list:
+            agg["collateral"] += pos.get("collateral", 0.0)
+            agg["value"] += pos.get("value", 0.0)
+            agg["size"] += pos.get("size", 0.0)
+            agg["heat_index"] += pos.get("heat_points", 0.0) or 0.0
+            agg["travel_percent"] += pos.get("current_travel_percent", 0.0) or 0.0
+            agg["leverage"] += pos.get("leverage", 0.0)
+        if count > 0:
+            agg["leverage"] /= count
+            agg["travel_percent"] /= count
+            # For heat_index you might do sum or average, choose your logic.
+            # e.g. agg["heat_index"] /= count
+        return agg
+
+    short_positions = {"BTC": [], "ETH": [], "SOL": []}
+    long_positions = {"BTC": [], "ETH": [], "SOL": []}
+
+    for pos in positions:
+        asset = pos.get("asset_type", "").upper()
+        ptype = pos.get("position_type", "Long").capitalize()
+        if "heat_points" not in pos:
+            pos["heat_points"] = 0.0
+        if asset in assets:
+            if ptype == "Short":
+                short_positions[asset].append(pos)
+            else:
+                long_positions[asset].append(pos)
+
+    for asset in assets:
+        s_agg = aggregate_positions(short_positions[asset], "Short")
+        l_agg = aggregate_positions(long_positions[asset], "Long")
+        heat_data[asset]["short"] = s_agg
+        heat_data[asset]["long"] = l_agg
+
+    # Sum up for totals
+    for asset in assets:
+        s_agg = heat_data[asset]["short"]
+        if s_agg:
+            heat_data["totals"]["short"]["collateral"] += s_agg["collateral"]
+            heat_data["totals"]["short"]["value"] += s_agg["value"]
+            heat_data["totals"]["short"]["size"] += s_agg["size"]
+            heat_data["totals"]["short"]["heat_index"] += s_agg["heat_index"]
+            heat_data["totals"]["short"]["travel_percent"] += s_agg["travel_percent"]
+            heat_data["totals"]["short"]["leverage"] += s_agg["leverage"]
+
+        l_agg = heat_data[asset]["long"]
+        if l_agg:
+            heat_data["totals"]["long"]["collateral"] += l_agg["collateral"]
+            heat_data["totals"]["long"]["value"] += l_agg["value"]
+            heat_data["totals"]["long"]["size"] += l_agg["size"]
+            heat_data["totals"]["long"]["heat_index"] += l_agg["heat_index"]
+            heat_data["totals"]["long"]["travel_percent"] += l_agg["travel_percent"]
+            heat_data["totals"]["long"]["leverage"] += l_agg["leverage"]
+
+    return heat_data
+
+
 @app.route("/heat", methods=["GET"])
 def heat():
-    """Example Heat page."""
+    """Heat page: side-by-side short vs long for BTC, ETH, SOL."""
     try:
         positions = data_locker.read_positions()
-        processed_positions = CalcServices().prepare_positions_for_display(positions)
-        balance_metrics = CalcServices().calculate_balance_metrics(positions)
-        return render_template("heat.html", positions=processed_positions, balance_metrics=balance_metrics)
+        # Build specialized structure
+        heat_data = build_heat_data(positions)
+        return render_template("heat.html", heat_data=heat_data)
     except Exception as e:
         app.logger.error(f"Error generating heat report: {e}")
         return jsonify({"error": f"Failed to generate heat report: {e}"}), 500
