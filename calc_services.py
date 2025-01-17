@@ -45,28 +45,51 @@ class CalcServices:
         return round(abs(liquidation_price - current_price), 2)
 
     @staticmethod
-    def calculate_travel_percent(entry_price, current_price, liquidation_price):
-        try:
-            if not entry_price or not liquidation_price:
-                raise ValueError("Entry price and liquidation price must be provided.")
+    def calculate_travel_percent(entry_price, current_price, liquidation_price, debug=False):
+        """
+        Calculate the percentage of travel between entry price and liquidation price based on the current price.
 
+        Parameters:
+            entry_price (float): The entry price of the position.
+            current_price (float): The current price of the asset.
+            liquidation_price (float): The liquidation price of the position.
+            debug (bool): Enable detailed debug logs if True.
+
+        Returns:
+            float: The travel percentage as a float. Returns 0.0 in case of an error.
+        """
+        try:
+            # Validate inputs
+            if entry_price is None or liquidation_price is None:
+                raise ValueError("Entry price and liquidation price must be provided.")
+            if not isinstance(entry_price, (int, float)) or not isinstance(liquidation_price,
+                                                                           (int, float)) or not isinstance(
+                    current_price, (int, float)):
+                raise TypeError("All price inputs must be numeric.")
+
+            # Calculate distances
             distance = liquidation_price - entry_price
             current_travel = current_price - entry_price
 
+            # Avoid division by zero
             if distance == 0:
                 raise ZeroDivisionError("Liquidation price and entry price cannot be equal.")
 
+            # Calculate travel percentage
             travel_percent = (current_travel / distance) * 100
 
-            # Debug logs for calculation details
-            print(f"Entry Price: {entry_price}, Current Price: {current_price}, Liquidation Price: {liquidation_price}")
-            print(f"Distance: {distance}, Current Travel: {current_travel}, Travel Percent: {travel_percent}")
+            # Optional debug logs
+            if debug:
+                print(
+                    f"Entry Price: {entry_price}, Current Price: {current_price}, Liquidation Price: {liquidation_price}")
+                print(f"Distance: {distance}, Current Travel: {current_travel}, Travel Percent: {travel_percent}")
 
             return travel_percent
+
         except Exception as e:
+            # Log error and return 0.0 on failure
             print(f"Error calculating travel percent: {e}")
             return 0.0
-
 
     def calculate_heat_points(self, position: dict) -> Optional[float]:
         """

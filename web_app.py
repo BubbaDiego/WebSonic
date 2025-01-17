@@ -65,7 +65,7 @@ def dashboard():
 @app.route("/refresh-data", methods=["POST"])
 def refresh_data():
     try:
-        #data_locker.sync_dependent_data()  # we are replacing this
+        data_locker.sync_dependent_data()  # we are replacing this
         data_locker.sync_calc_services()  # add this functionality.
         app.logger.info("Data refreshed successfully.")
         return redirect("/dash")

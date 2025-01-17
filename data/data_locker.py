@@ -479,15 +479,19 @@ class DataLocker:
     # CRUD Operations for Positions
     def create_position(self, position):
         """
-        Adds a position to the database. Accepts a dictionary representing the position.
+        Adds a position to the database. Accepts a Position object or a dictionary.
         """
         try:
-            # Log the position dictionary directly
-            self.logger.debug(f"Creating position: {position}")
+            # Convert position to dictionary if it's an instance of Position
+            if isinstance(position, Position):
+                position = position.to_dict()
 
-            # Insert into the database
             self.cursor.execute('''
-                INSERT INTO positions (id, asset_type, position_type, entry_price, liquidation_price, current_travel_percent, value, collateral, size, wallet, leverage, last_updated, current_price, liquidation_distance)
+                INSERT INTO positions (
+                    id, asset_type, position_type, entry_price, liquidation_price,
+                    current_travel_percent, value, collateral, size, wallet,
+                    leverage, last_updated, current_price, liquidation_distance
+                )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 position.get("id", f"pos_{uuid.uuid4().hex[:8]}"),
@@ -508,17 +512,9 @@ class DataLocker:
             self.conn.commit()
             self.logger.info(f"Position created successfully: {position}")
         except sqlite3.IntegrityError as e:
-            if "UNIQUE constraint failed: positions.id" in str(e):
-                new_id = f"pos_{uuid.uuid4().hex[:8]}"
-                self.logger.warning(f"Duplicate ID detected: {position['id']}. Generating a new ID: {new_id}")
-                position["id"] = new_id
-                self.create_position(position)
-            else:
-                self.logger.error(f"IntegrityError creating position: {e}", exc_info=True)
-                raise
+            self.logger.error(f"IntegrityError creating position: {e}", exc_info=True)
         except Exception as e:
             self.logger.error(f"Error creating position: {e}", exc_info=True)
-            raise
 
     def add_position(self, position):
         """Add a new position to the database."""
@@ -781,65 +777,49 @@ class DataLocker:
             self.logger.error(f"Error syncing calc services: {e}", exc_info=True)
 
     def sync_dependent_data(self):
-        """
-        Sync dependent data by recalculating dynamically changing fields
-        (e.g., travel percent, liquidation distance, leverage, value, heat points, and heat ratio).
-        This ensures the database reflects up-to-date computed values.
-        """
         try:
-            pacific_tz = timezone("US/Pacific")
-
-            def convert_to_pst(dt):
-                if dt:
-                    return dt.astimezone(pacific_tz).strftime('%I:%M %p PST')
-                return "Never"
-
-            # Fetch all positions from the database
             self.logger.debug("Fetching positions from the database")
             positions = self.read_positions()
             prices = self.read_prices()
             price_dict = {price['asset_type']: price['current_price'] for price in prices}
 
             for position in positions:
-                # Validate and log missing fields
-                required_fields = ["asset_type", "entry_price", "current_price", "liquidation_price"]
+                # Validate required fields
+                required_fields = ["asset_type", "entry_price", "liquidation_price"]
                 missing_fields = [field for field in required_fields if not position.get(field)]
                 if missing_fields:
                     self.logger.warning(f"Position ID {position.get('id', 'unknown')} missing fields: {missing_fields}")
                     continue
 
-                # Update current price using the price dictionary
+                # Update current price
                 position['current_price'] = price_dict.get(position['asset_type'], 0)
                 if position['current_price'] == 0:
                     self.logger.warning(f"Missing current price for asset: {position['asset_type']}")
                     continue
 
-                self.sync_calc_services()
+                # Perform calculations
+                entry_price = position['entry_price']
+                liquidation_price = position['liquidation_price']
+                current_price = position['current_price']
 
-                # Update the database with recalculated values
-                try:
-                    self.cursor.execute('''
-                        UPDATE positions
-                        SET current_price = ?,
-                            value = ?,
-                            current_travel_percent = ?,
-                            liquidation_distance = ?,
-                            heat_points = ?,
-                            last_updated = ?
-                        WHERE id = ?
-                    ''', (
-                        position['current_price'],
-                        position['value'],
-                        position['current_travel_percent'],
-                        position['liquidation_distance'],
-                        position['heat_points'],
-                        position['last_updated'],
-                        position['id']
-                    ))
-                except sqlite3.Error as db_error:
-                    self.logger.error(f"Database update failed for position ID {position.get('id', 'unknown')}: {db_error}")
+                position['current_travel_percent'] = (
+                    ((current_price - entry_price) / (entry_price - liquidation_price)) * 100
+                    if entry_price != liquidation_price else 0.0
+                )
+                position['heat_points'] = self.calculate_heat_points(position)
 
-            # Commit all changes to the database
+                # Update the database
+                self.cursor.execute('''
+                    UPDATE positions
+                    SET current_price = ?, current_travel_percent = ?, heat_points = ?
+                    WHERE id = ?
+                ''', (
+                    position['current_price'],
+                    position['current_travel_percent'],
+                    position['heat_points'],
+                    position['id']
+                ))
+
             self.conn.commit()
             self.logger.info("Dependent data synced successfully.")
 

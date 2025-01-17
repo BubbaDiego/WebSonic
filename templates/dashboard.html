@@ -30,8 +30,12 @@
         .table {
             border: 2px solid darkblue;
         }
-        .position-summary {
-            border: 4px solid darkblue;
+        .position-summary td, .position-summary th {
+            text-align: center; /* Center text horizontally */
+            vertical-align: middle; /* Center text vertically */
+            width: auto; /* Ensure consistent column widths */
+            padding: 8px; /* Adjust padding for consistent spacing */
+            /*font-family: "Consolas", monospace;*/
         }
         .totals-row {
             background-color: #e6ccff;
@@ -99,6 +103,7 @@
                             <th>⚙️ Leverage</th>
                             <th>📉 Travel %</th>
                             <th>🔥 Heat Points</th>
+                            <th>💧 Liquidation Distance</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -109,7 +114,7 @@
                                 <img src="/static/images/{{ position.asset_type | lower }}_logo.png" class="asset-logo">
                                 {{ position.asset_type }}
                             </td>
-                             <td><b>{{ position.position_type }}</b></td>
+                            <td><b>{{ position.position_type }}</b></td>
                             <td style="background-color: {{ position.collateral_color }}"><b>{{ "{:,}".format(position.collateral) }}</b></td>
                             <td style="background-color: {{ position.value_color }}"><b>{{ "{:,}".format(position.value) }}</b></td>
                             <td style="background-color: {{ position.size_color }}"><b>{{ "{:,}".format(position.size) }}</b></td>
@@ -128,14 +133,13 @@
                                     N/A
                                 {% endif %}
                             </b></td>
-                            </td>
-                            <td style="background-color: {{ position.heat_index_color }}">
-                                {% if position.heat_points is not none %}
-                                    {{ "{:,}".format(position.heat_points) }}
+                            <td style="background-color: {{ position.liquidation_distance_color }}"><b>
+                                {% if position.liquidation_distance is not none %}
+                                    {{ "{:,}".format(position.liquidation_distance) }}
                                 {% else %}
                                     N/A
                                 {% endif %}
-                            </td>
+                            </b></td>
                             <td>
                                 <form method="POST" action="/delete-position/{{ position.id }}" style="display: inline;">
                                     <button type="submit" class="btn btn-danger btn-sm">Delete</button>
@@ -211,11 +215,11 @@
         </div>
         <div>
             <label for="entry-price" class="form-label">Entry Price</label>
-            <input type="number" step="0.01" class="form-control" id="entry-price" name="entry_price" value="0.0" required>
+            <input type="number" step="0.1" class="form-control" id="entry-price" name="entry_price" required>
         </div>
         <div>
             <label for="liquidation-price" class="form-label">Liquidation Price</label>
-            <input type="number" step="0.01" class="form-control" id="liquidation-price" name="liquidation_price" value="0.0" required>
+            <input type="number" step="0.1" class="form-control" id="liquidation-price" name="liquidation_price" required>
         </div>
         <div class="align-self-end">
             <button type="submit" class="btn btn-primary">Add Position</button>
