@@ -49,7 +49,7 @@
       <td><b>{{ pos.position_type }}</b></td>
 
       <!-- Collateral (inline edit) -->
-      <td>
+      <td class="{{ pos.collateral_status }}">
         <span id="span-collateral-{{ pos.id }}">
           {{ "{:,}".format(pos.collateral) }}
         </span>
@@ -63,10 +63,12 @@
       </td>
 
       <!-- Value -->
-      <td>{{ "{:,}".format(pos.value) }}</td>
+      <td class="{{ pos.value_status }}">
+        {{ "{:,}".format(pos.value) }}
+      </td>
 
       <!-- Size (inline edit) -->
-      <td>
+      <td class="{{ pos.size_status }}">
         <span id="span-size-{{ pos.id }}">
           {{ "{:,}".format(pos.size) }}
         </span>
@@ -80,10 +82,12 @@
       </td>
 
       <!-- Leverage -->
-      <td>{{ pos.leverage|float|round(2) }}</td>
+      <td>
+        {{ pos.leverage|float|round(2) }}
+      </td>
 
       <!-- Travel % -->
-      <td>
+      <td class="{{ pos.travel_percent_status }}">
         {% if pos.current_travel_percent is not none %}
           {{ pos.current_travel_percent|round(2) }}%
         {% else %}
@@ -92,7 +96,7 @@
       </td>
 
       <!-- Heat Index -->
-      <td>
+      <td class="{{ pos.heat_index_status }}">
         {% if pos.heat_index is not none %}
           {{ "{:,}".format(pos.heat_index) }}
         {% else %}
@@ -175,10 +179,7 @@
       <td>{{ "{:,}".format(totals.get("total_size", 0)) }}</td>
       <td>{{ "{:,}".format(totals.get("avg_leverage", 0)) }}</td>
       <td>{{ "{:,}".format(totals.get("avg_travel_percent", 0)) }}%</td>
-
-      <!-- Now referencing "avg_heat_index" instead of "avg_heat_points" -->
       <td>{{ "{:,}".format(totals.get("avg_heat_index", 0)) }}</td>
-
       <td></td>
       <td></td>
     </tr>

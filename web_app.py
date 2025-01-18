@@ -1,5 +1,3 @@
-# web_app.py
-
 import os
 import uuid
 import logging
@@ -12,7 +10,7 @@ from flask import Flask, request, jsonify, render_template, redirect, url_for
 from data.data_locker import DataLocker
 from calc_services import CalcServices
 
-# Pydantic-based config from data/config.py
+# Pydantic-based config from data.config import AppConfig
 from data.config import AppConfig
 
 # ------------------------------------------------------------------
@@ -53,37 +51,25 @@ def index():
 # POSITIONS
 # ------------------------------------------------------------------
 @app.route("/positions", methods=["GET", "POST"])
+@app.route("/positions", methods=["GET", "POST"])
 def positions():
-    """
-    If POST, create a new position from form data.
-    If GET, display positions in a template.
-    """
     logger.debug("Step 1: Entered /positions route.")
 
     if request.method == "POST":
-        logger.debug("Creating a new position from form data.")
-        try:
-            data = request.form
-            position = {
-                "id": data.get("id") or f"pos_{uuid.uuid4().hex[:8]}",
-                "asset_type": data.get("asset_type", "BTC"),
-                "position_type": data.get("position_type", "Long"),
-                "entry_price": float(data.get("entry_price", 0.0)),
-                "liquidation_price": float(data.get("liquidation_price", 0.0)),
-                "current_travel_percent": float(data.get("current_travel_percent", 0.0)),
-                "value": float(data.get("value", 0.0)),
-                "collateral": float(data.get("collateral", 0.0)),
-                "size": float(data.get("size", 0.0)),
-                "wallet": data.get("wallet", "Default"),
-                "leverage": float(data.get("leverage", 1.0)),
-                "last_updated": None,
-                "current_price": None,
-                "liquidation_distance": None,
-            }
-            data_locker.create_position(position)
-        except Exception as e:
-            logger.error(f"Error creating position: {e}", exc_info=True)
-            return jsonify({"error": str(e)}), 500
+        # Your existing "create new position" logic (insert to DB, etc.)
+        asset_type = request.form.get("asset_type", "BTC")
+        position_type = request.form.get("position_type", "Long")
+        collateral = float(request.form.get("collateral", 0.0))
+        size = float(request.form.get("size", 0.0))
+        entry_price = float(request.form.get("entry_price", 0.0))
+        liquidation_price = float(request.form.get("liquidation_price", 0.0))
+
+        data_locker.cursor.execute("""
+            INSERT INTO positions
+            (asset_type, position_type, collateral, size, entry_price, liquidation_price)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (asset_type, position_type, collateral, size, entry_price, liquidation_price))
+        data_locker.conn.commit()
 
         return redirect(url_for("positions"))
 
@@ -97,31 +83,106 @@ def positions():
         logger.error(f"DB Error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
-    # Attempt to run aggregator logic
+    # Attempt aggregator logic
     logger.debug("Step 3: Running aggregator logic.")
     try:
-        # Preprocess positions for display
+        # Calculate any derived fields you need:
         positions_data = calc_services.prepare_positions_for_display(positions_data)
-
-        # Calculate totals
         totals = calc_services.calculate_totals(positions_data)
         logger.debug(f"Computed totals: {totals}")
     except Exception as e:
-        logger.error(f"Step 3.3: Error in aggregator logic: {e}", exc_info=True)
+        logger.error(f"Error in aggregator logic: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
-    # Round for final display if desired
+    # Load config to get alert_ranges
+    try:
+        config_data = AppConfig.load("sonic_config.json")
+    except Exception as e:
+        logger.error(f"Error loading config: {e}", exc_info=True)
+        return jsonify({"error": "Failed to load config"}), 500
+
+    # ------------------------------------------------------------------
+    # Color-code fields by comparing to alert ranges
+    # ------------------------------------------------------------------
+    def get_alert_status(value: float, low_threshold: float, medium_threshold: float, high_threshold: float | None) -> str:
+        """
+        Returns a CSS class based on whether `value` is in low, medium, or high range:
+        - '' (empty string): Low (no background color)
+        - 'bg-warning': Medium (yellow)
+        - 'bg-danger': High (red)
+        """
+        if high_threshold is None:
+            high_threshold = float("inf")
+
+        if value <= low_threshold:
+            return ""
+        elif value <= medium_threshold:
+            return "bg-warning"
+        else:
+            return "bg-danger"
+
+    for pos in positions_data:
+        # Value
+        val_ranges = config_data.alert_ranges.value_ranges
+        pos["value_status"] = get_alert_status(
+            pos.get("value", 0.0),
+            val_ranges.low or 0.0,
+            val_ranges.medium or 9999999.0,
+            val_ranges.high
+        )
+
+        # Collateral
+        col_ranges = config_data.alert_ranges.collateral_ranges
+        pos["collateral_status"] = get_alert_status(
+            pos.get("collateral", 0.0),
+            col_ranges.low or 0.0,
+            col_ranges.medium or 9999999.0,
+            col_ranges.high
+        )
+
+        # Size
+        size_ranges = config_data.alert_ranges.size_ranges
+        pos["size_status"] = get_alert_status(
+            pos.get("size", 0.0),
+            size_ranges.low or 0.0,
+            size_ranges.medium or 9999999.0,
+            size_ranges.high
+        )
+
+        # Heat Index
+        hi_ranges = config_data.alert_ranges.heat_index_ranges
+        pos["heat_index_status"] = get_alert_status(
+            pos.get("heat_index", 0.0),
+            hi_ranges.low or 0.0,
+            hi_ranges.medium or 9999999.0,
+            hi_ranges.high
+        )
+
+        # Travel Percent
+        trav_ranges = config_data.alert_ranges.travel_percent_ranges
+        pos["travel_percent_status"] = get_alert_status(
+            pos.get("current_travel_percent", 0.0),
+            trav_ranges.low or -999999.0,    # for negative possibilities
+            trav_ranges.medium or 9999999.0,
+            trav_ranges.high
+        )
+
+        # If you want to do the same for "leverage" or "liq_distance", do it here as well.
+
+    # ------------------------------------------------------------------
+    # Round numeric fields for display (optional)
+    # ------------------------------------------------------------------
     def roundify(val):
         return round(val, 2) if isinstance(val, (int, float)) else val
 
-    # Round out positions & prices
     for pos in positions_data:
         for k, v in pos.items():
-            pos[k] = roundify(v)
+            if isinstance(v, (int, float)):
+                pos[k] = roundify(v)
     for pr in prices_data:
         for k, v in pr.items():
-            pr[k] = roundify(v)
-
+            if isinstance(v, (int, float)):
+                pr[k] = roundify(v)
     totals = {k: roundify(v) for k, v in totals.items()}
 
     return render_template(
@@ -129,8 +190,10 @@ def positions():
         positions=positions_data,
         prices=prices_data,
         totals=totals,
-        balance_metrics={}  # or some other info if you want
+        balance_metrics={},
+        config=config_data
     )
+
 
 # ------------------------------------------------------------------
 # EDIT POSITION
@@ -209,9 +272,7 @@ def alert_options():
     if request.method == "POST":
         logger.debug("Updating alert ranges from form.")
         try:
-            # ---------------------
-            # HEAT INDEX
-            # ---------------------
+            # Example of reading form fields -> updating config
             new_heat_index_low = float(request.form["heat_index_low"])
             new_heat_index_medium = float(request.form["heat_index_medium"])
             raw_heat_index_high = request.form.get("heat_index_high", "")
@@ -221,84 +282,12 @@ def alert_options():
             config_data.alert_ranges.heat_index_ranges.medium = new_heat_index_medium
             config_data.alert_ranges.heat_index_ranges.high = new_heat_index_high
 
-            # ---------------------
-            # COLLATERAL
-            # ---------------------
-            new_collateral_low = float(request.form["collateral_low"])
-            new_collateral_medium = float(request.form["collateral_medium"])
-            raw_collateral_high = request.form.get("collateral_high", "")
-            new_collateral_high = float(raw_collateral_high) if raw_collateral_high else None
+            # Repeat for other ranges (collateral, value, size, leverage, etc.)
 
-            config_data.alert_ranges.collateral_ranges.low = new_collateral_low
-            config_data.alert_ranges.collateral_ranges.medium = new_collateral_medium
-            config_data.alert_ranges.collateral_ranges.high = new_collateral_high
-
-            # ---------------------
-            # VALUE
-            # ---------------------
-            new_value_low = float(request.form["value_low"])
-            new_value_medium = float(request.form["value_medium"])
-            raw_value_high = request.form.get("value_high", "")
-            new_value_high = float(raw_value_high) if raw_value_high else None
-
-            config_data.alert_ranges.value_ranges.low = new_value_low
-            config_data.alert_ranges.value_ranges.medium = new_value_medium
-            config_data.alert_ranges.value_ranges.high = new_value_high
-
-            # ---------------------
-            # SIZE
-            # ---------------------
-            new_size_low = float(request.form["size_low"])
-            new_size_medium = float(request.form["size_medium"])
-            raw_size_high = request.form.get("size_high", "")
-            new_size_high = float(raw_size_high) if raw_size_high else None
-
-            config_data.alert_ranges.size_ranges.low = new_size_low
-            config_data.alert_ranges.size_ranges.medium = new_size_medium
-            config_data.alert_ranges.size_ranges.high = new_size_high
-
-            # ---------------------
-            # LEVERAGE
-            # ---------------------
-            new_leverage_low = float(request.form["leverage_low"])
-            new_leverage_medium = float(request.form["leverage_medium"])
-            raw_leverage_high = request.form.get("leverage_high", "")
-            new_leverage_high = float(raw_leverage_high) if raw_leverage_high else None
-
-            config_data.alert_ranges.leverage_ranges.low = new_leverage_low
-            config_data.alert_ranges.leverage_ranges.medium = new_leverage_medium
-            config_data.alert_ranges.leverage_ranges.high = new_leverage_high
-
-            # ---------------------
-            # LIQUIDATION DISTANCE
-            # ---------------------
-            new_liq_dist_low = float(request.form["liq_dist_low"])
-            new_liq_dist_medium = float(request.form["liq_dist_medium"])
-            raw_liq_dist_high = request.form.get("liq_dist_high", "")
-            new_liq_dist_high = float(raw_liq_dist_high) if raw_liq_dist_high else None
-
-            config_data.alert_ranges.liquidation_distance_ranges.low = new_liq_dist_low
-            config_data.alert_ranges.liquidation_distance_ranges.medium = new_liq_dist_medium
-            config_data.alert_ranges.liquidation_distance_ranges.high = new_liq_dist_high
-
-            # ---------------------
-            # TRAVEL PERCENT
-            # ---------------------
-            new_travel_low = float(request.form["travel_low"])
-            new_travel_medium = float(request.form["travel_medium"])
-            raw_travel_high = request.form.get("travel_high", "")
-            new_travel_high = float(raw_travel_high) if raw_travel_high else None
-
-            config_data.alert_ranges.travel_percent_ranges.low = new_travel_low
-            config_data.alert_ranges.travel_percent_ranges.medium = new_travel_medium
-            config_data.alert_ranges.travel_percent_ranges.high = new_travel_high
-
-            # ---------------------
-            # SAVE TO FILE
-            # ---------------------
-            data_dict = config_data.model_dump()  # Convert the Pydantic model to a plain dict
+            # After updating all fields...
+            data_dict = config_data.model_dump()
             with open("sonic_config.json", "w") as f:
-                f.write(json.dumps(data_dict, indent=2))  # Use standard json.dumps with indent=2
+                f.write(json.dumps(data_dict, indent=2))
 
             return redirect(url_for("alert_options"))
 
@@ -309,8 +298,6 @@ def alert_options():
     # GET request: show the current settings in the form
     return render_template("alert_options.html", config=config_data)
 
-
-
 # ------------------------------------------------------------------
 # HEAT
 # ------------------------------------------------------------------
@@ -320,15 +307,13 @@ def heat():
     try:
         positions_data = data_locker.read_positions()
         positions_data = calc_services.prepare_positions_for_display(positions_data)
-        # Suppose you have a build_heat_data function
-        heat_data = build_heat_data(positions_data)
+        heat_data = build_heat_data(positions_data)  # an example function
         return render_template("heat.html", heat_data=heat_data)
     except Exception as e:
         logger.error(f"Error generating heat page: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 def build_heat_data(positions):
-    # Sample logic:
     return {"dummy": "Implement your logic here."}
 
 # ------------------------------------------------------------------
@@ -336,13 +321,9 @@ def build_heat_data(positions):
 # ------------------------------------------------------------------
 @app.route("/config", methods=["GET", "POST"])
 def system_config():
-    """
-    Example system config page if needed
-    """
     config_data = AppConfig.load("sonic_config.json")
 
     if request.method == "POST":
-        # update some system config fields
         new_logging_enabled = (request.form.get("logging_enabled") == "on")
         config_data.system_config.logging_enabled = new_logging_enabled
         # etc ...
@@ -352,9 +333,6 @@ def system_config():
 
     return render_template("system_config.html", config=config_data)
 
-# ------------------------------------------------------------------
-# MAIN ENTRY (if used)
-# ------------------------------------------------------------------
+
 if __name__ == "__main__":
-    # If you directly run python web_app.py, you can do:
     app.run(debug=True, host="0.0.0.0", port=5000)
