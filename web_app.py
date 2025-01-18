@@ -1,29 +1,34 @@
+# web_app.py
+
 import os
 import uuid
-from datetime import datetime
 import logging
+import json
+from datetime import datetime
 
 from flask import Flask, request, jsonify, render_template, redirect, url_for
 
-# ------------------------------------------------------------------
-# Your custom classes
-# ------------------------------------------------------------------
+# DataLocker and CalcServices from your existing code
 from data.data_locker import DataLocker
 from calc_services import CalcServices
 
+# Pydantic-based config from data/config.py
+from data.config import AppConfig
+
 # ------------------------------------------------------------------
-# Flask App Initialization
+# Initialize Flask
 # ------------------------------------------------------------------
 app = Flask(__name__)
 
-# ------------------------------------------------------------------
-# Configure Logging
-# ------------------------------------------------------------------
-logging.basicConfig(level=logging.DEBUG)
+# Optional: set debug in code or rely on environment variables
+app.debug = True
+
+# Logging
 logger = logging.getLogger("WebAppLogger")
+logger.setLevel(logging.DEBUG)
 
 # ------------------------------------------------------------------
-# Database / DataLocker Setup
+# Initialize DataLocker, CalcServices, etc.
 # ------------------------------------------------------------------
 db_path = os.getenv("DATA_LOCKER_DB", "data/mother_brain.db")
 db_path = os.path.abspath(db_path)
@@ -33,46 +38,35 @@ data_locker = DataLocker(db_path=db_path)
 calc_services = CalcServices()
 
 # ------------------------------------------------------------------
-# Simple Test Route
-# ------------------------------------------------------------------
-@app.route("/test")
-def test_route():
-    logger.debug("Reached the /test route!")
-    return "Test route OK", 200
-
-# ------------------------------------------------------------------
-# Root Route
+# Root route
 # ------------------------------------------------------------------
 @app.route("/")
 def index():
-    logger.debug("Reached the / (root) route - returning dummy success for debugging.")
-    return "Root dummy route OK", 200
+    """
+    Instead of returning a 'dummy success' message,
+    we can redirect to /positions or some other page.
+    """
+    logger.debug("Reached the / (root) route - redirecting to /positions.")
+    return redirect(url_for("positions"))
 
 # ------------------------------------------------------------------
-# System Config Route (to match url_for('system_config'))
-# ------------------------------------------------------------------
-@app.route("/system_config", methods=["GET", "POST"])
-def system_config():
-    """
-    Minimal route for system config to avoid BuildError if 'system_config' was missing.
-    """
-    logger.debug("Accessed /system_config route.")
-    return "System Config route OK", 200
-
-# ------------------------------------------------------------------
-# POSITIONS ENDPOINT - with incremental debug
+# POSITIONS
 # ------------------------------------------------------------------
 @app.route("/positions", methods=["GET", "POST"])
 def positions():
+    """
+    If POST, create a new position from form data.
+    If GET, display positions in a template.
+    """
     logger.debug("Step 1: Entered /positions route.")
 
     if request.method == "POST":
-        logger.debug("Step 1.1: Handling POST to /positions.")
+        logger.debug("Creating a new position from form data.")
         try:
             data = request.form
             position = {
                 "id": data.get("id") or f"pos_{uuid.uuid4().hex[:8]}",
-                "asset_type": data.get("asset_type"),
+                "asset_type": data.get("asset_type", "BTC"),
                 "position_type": data.get("position_type", "Long"),
                 "entry_price": float(data.get("entry_price", 0.0)),
                 "liquidation_price": float(data.get("liquidation_price", 0.0)),
@@ -86,62 +80,56 @@ def positions():
                 "current_price": None,
                 "liquidation_distance": None,
             }
-            logger.debug(f"Step 1.2: New position form data: {position}")
             data_locker.create_position(position)
-            logger.debug("Step 1.3: Position created successfully.")
         except Exception as e:
-            logger.error(f"Step 1.4: Error creating position: {e}", exc_info=True)
+            logger.error(f"Error creating position: {e}", exc_info=True)
             return jsonify({"error": str(e)}), 500
 
-    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    # If you suspect the route or template is causing a 500,
-    # you can comment out or re-enable pieces in steps 2-4 below.
-    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        return redirect(url_for("positions"))
 
-    # # (Uncomment this if you want a minimal success path first)
-    # logger.debug("Step 2: Minimal route returning success.")
-    # return "Positions minimal route OK", 200
-
+    # If GET, read from DB
     logger.debug("Step 2: Reading positions/prices from DB.")
     try:
         positions_data = data_locker.read_positions()
         prices_data = data_locker.read_prices()
         logger.debug(f"Step 2.1: Fetched {len(positions_data)} positions, {len(prices_data)} prices.")
     except Exception as e:
-        logger.error(f"Step 2.2: Error fetching from DB: {e}", exc_info=True)
+        logger.error(f"DB Error: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
+    # Attempt to run aggregator logic
     logger.debug("Step 3: Running aggregator logic.")
     try:
+        # Preprocess positions for display
         positions_data = calc_services.prepare_positions_for_display(positions_data)
-        logger.debug("Step 3.1: positions prepared.")
+
+        # Calculate totals
         totals = calc_services.calculate_totals(positions_data)
-        logger.debug(f"Step 3.2: Calculated totals: {totals}")
+        logger.debug(f"Computed totals: {totals}")
     except Exception as e:
         logger.error(f"Step 3.3: Error in aggregator logic: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
-    logger.debug("Step 4: Rounding data & rendering template.")
-    def roundify(item):
-        return round(item, 2) if isinstance(item, (int, float)) else item
+    # Round for final display if desired
+    def roundify(val):
+        return round(val, 2) if isinstance(val, (int, float)) else val
 
-    positions_data = [
-        {k: roundify(v) for k, v in pos.items()}
-        for pos in positions_data
-    ]
-    prices_data = [
-        {k: roundify(v) for k, v in p.items()}
-        for p in prices_data
-    ]
+    # Round out positions & prices
+    for pos in positions_data:
+        for k, v in pos.items():
+            pos[k] = roundify(v)
+    for pr in prices_data:
+        for k, v in pr.items():
+            pr[k] = roundify(v)
+
     totals = {k: roundify(v) for k, v in totals.items()}
 
-    logger.debug(f"Step 4.1: Rounding done. Rendering positions.html now.")
     return render_template(
         "positions.html",
         positions=positions_data,
         prices=prices_data,
         totals=totals,
-        balance_metrics={}  # or use calc_services.calculate_balance_metrics(positions_data)
+        balance_metrics={}  # or some other info if you want
     )
 
 # ------------------------------------------------------------------
@@ -154,148 +142,219 @@ def edit_position(position_id):
         size = float(request.form.get("size", 0.0))
         collateral = float(request.form.get("collateral", 0.0))
 
+        # Suppose you have a method that updates size & collateral
         data_locker.update_position(position_id, new_size=size, new_collateral=collateral)
         data_locker.sync_dependent_data()
         data_locker.sync_calc_services()
+
         return redirect(url_for("positions"))
     except Exception as e:
         logger.error(f"Error updating position {position_id}: {e}", exc_info=True)
-        return jsonify({"error": f"Failed to update position: {e}"}), 500
+        return jsonify({"error": str(e)}), 500
 
 # ------------------------------------------------------------------
 # DELETE POSITION
 # ------------------------------------------------------------------
 @app.route("/delete-position/<position_id>", methods=["POST"])
 def delete_position(position_id):
-    logger.debug(f"Deleting position {position_id}.")
+    logger.debug(f"Deleting position {position_id}")
     try:
         data_locker.cursor.execute("DELETE FROM positions WHERE id = ?", (position_id,))
         data_locker.conn.commit()
         return redirect(url_for("positions"))
     except Exception as e:
         logger.error(f"Error deleting position {position_id}: {e}", exc_info=True)
-        return jsonify({"error": f"Failed to delete position: {e}"}), 500
+        return jsonify({"error": str(e)}), 500
 
 # ------------------------------------------------------------------
-# PRICES ENDPOINT
+# PRICES
 # ------------------------------------------------------------------
 @app.route("/prices", methods=["GET", "POST"])
 def prices():
-    logger.debug("Accessed /prices route.")
+    logger.debug("Entered /prices route.")
     if request.method == "POST":
-        logger.debug("Handling POST to /prices (Manual insert/update).")
+        logger.debug("Inserting/Updating a manual price.")
         try:
-            asset = request.form.get("asset")
+            asset = request.form.get("asset", "BTC")
             price_val = float(request.form.get("price", 0.0))
             data_locker.insert_or_update_price(asset, price_val, "Manual", datetime.now())
-            logger.debug(f"Price inserted/updated for asset={asset}, price={price_val}")
         except Exception as e:
-            logger.error(f"Error inserting/updating price: {e}", exc_info=True)
+            logger.error(f"Error updating price: {e}", exc_info=True)
             return jsonify({"error": str(e)}), 500
 
-    logger.debug("Reading prices from DB for display.")
+        return redirect(url_for("prices"))
+
+    # GET request: read from DB
     prices_data = data_locker.read_prices()
-    def roundify(item):
-        return round(item, 2) if isinstance(item, (int, float)) else item
-    prices_data = [
-        {k: roundify(v) for k, v in p.items()}
-        for p in prices_data
-    ]
-    logger.debug(f"Fetched {len(prices_data)} prices. Rendering prices.html.")
+    def roundify(val):
+        return round(val, 2) if isinstance(val, (int, float)) else val
+    for pr in prices_data:
+        for k, v in pr.items():
+            pr[k] = roundify(v)
+
     return render_template("prices.html", prices=prices_data)
 
 # ------------------------------------------------------------------
-# HEAT ENDPOINT
+# ALERT OPTIONS
+# ------------------------------------------------------------------
+@app.route("/alert-options", methods=["GET", "POST"])
+@app.route("/alert-options", methods=["GET", "POST"])
+def alert_options():
+    """
+    Loads config from 'sonic_config.json', displays current alert ranges,
+    and updates them based on form fields that match alert_options.html.
+    """
+    config_data = AppConfig.load("sonic_config.json")  # Adjust path if needed
+
+    if request.method == "POST":
+        logger.debug("Updating alert ranges from form.")
+        try:
+            # ---------------------
+            # HEAT INDEX
+            # ---------------------
+            new_heat_index_low = float(request.form["heat_index_low"])
+            new_heat_index_medium = float(request.form["heat_index_medium"])
+            raw_heat_index_high = request.form.get("heat_index_high", "")
+            new_heat_index_high = float(raw_heat_index_high) if raw_heat_index_high else None
+
+            config_data.alert_ranges.heat_index_ranges.low = new_heat_index_low
+            config_data.alert_ranges.heat_index_ranges.medium = new_heat_index_medium
+            config_data.alert_ranges.heat_index_ranges.high = new_heat_index_high
+
+            # ---------------------
+            # COLLATERAL
+            # ---------------------
+            new_collateral_low = float(request.form["collateral_low"])
+            new_collateral_medium = float(request.form["collateral_medium"])
+            raw_collateral_high = request.form.get("collateral_high", "")
+            new_collateral_high = float(raw_collateral_high) if raw_collateral_high else None
+
+            config_data.alert_ranges.collateral_ranges.low = new_collateral_low
+            config_data.alert_ranges.collateral_ranges.medium = new_collateral_medium
+            config_data.alert_ranges.collateral_ranges.high = new_collateral_high
+
+            # ---------------------
+            # VALUE
+            # ---------------------
+            new_value_low = float(request.form["value_low"])
+            new_value_medium = float(request.form["value_medium"])
+            raw_value_high = request.form.get("value_high", "")
+            new_value_high = float(raw_value_high) if raw_value_high else None
+
+            config_data.alert_ranges.value_ranges.low = new_value_low
+            config_data.alert_ranges.value_ranges.medium = new_value_medium
+            config_data.alert_ranges.value_ranges.high = new_value_high
+
+            # ---------------------
+            # SIZE
+            # ---------------------
+            new_size_low = float(request.form["size_low"])
+            new_size_medium = float(request.form["size_medium"])
+            raw_size_high = request.form.get("size_high", "")
+            new_size_high = float(raw_size_high) if raw_size_high else None
+
+            config_data.alert_ranges.size_ranges.low = new_size_low
+            config_data.alert_ranges.size_ranges.medium = new_size_medium
+            config_data.alert_ranges.size_ranges.high = new_size_high
+
+            # ---------------------
+            # LEVERAGE
+            # ---------------------
+            new_leverage_low = float(request.form["leverage_low"])
+            new_leverage_medium = float(request.form["leverage_medium"])
+            raw_leverage_high = request.form.get("leverage_high", "")
+            new_leverage_high = float(raw_leverage_high) if raw_leverage_high else None
+
+            config_data.alert_ranges.leverage_ranges.low = new_leverage_low
+            config_data.alert_ranges.leverage_ranges.medium = new_leverage_medium
+            config_data.alert_ranges.leverage_ranges.high = new_leverage_high
+
+            # ---------------------
+            # LIQUIDATION DISTANCE
+            # ---------------------
+            new_liq_dist_low = float(request.form["liq_dist_low"])
+            new_liq_dist_medium = float(request.form["liq_dist_medium"])
+            raw_liq_dist_high = request.form.get("liq_dist_high", "")
+            new_liq_dist_high = float(raw_liq_dist_high) if raw_liq_dist_high else None
+
+            config_data.alert_ranges.liquidation_distance_ranges.low = new_liq_dist_low
+            config_data.alert_ranges.liquidation_distance_ranges.medium = new_liq_dist_medium
+            config_data.alert_ranges.liquidation_distance_ranges.high = new_liq_dist_high
+
+            # ---------------------
+            # TRAVEL PERCENT
+            # ---------------------
+            new_travel_low = float(request.form["travel_low"])
+            new_travel_medium = float(request.form["travel_medium"])
+            raw_travel_high = request.form.get("travel_high", "")
+            new_travel_high = float(raw_travel_high) if raw_travel_high else None
+
+            config_data.alert_ranges.travel_percent_ranges.low = new_travel_low
+            config_data.alert_ranges.travel_percent_ranges.medium = new_travel_medium
+            config_data.alert_ranges.travel_percent_ranges.high = new_travel_high
+
+            # ---------------------
+            # SAVE TO FILE
+            # ---------------------
+            data_dict = config_data.model_dump()  # Convert the Pydantic model to a plain dict
+            with open("sonic_config.json", "w") as f:
+                f.write(json.dumps(data_dict, indent=2))  # Use standard json.dumps with indent=2
+
+            return redirect(url_for("alert_options"))
+
+        except Exception as e:
+            logger.error(f"Error updating alert ranges: {e}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
+
+    # GET request: show the current settings in the form
+    return render_template("alert_options.html", config=config_data)
+
+
+
+# ------------------------------------------------------------------
+# HEAT
 # ------------------------------------------------------------------
 @app.route("/heat", methods=["GET"])
 def heat():
-    logger.debug("Accessed /heat route.")
+    logger.debug("Entered /heat route.")
     try:
-        positions = data_locker.read_positions()
-        positions = calc_services.prepare_positions_for_display(positions)
-        heat_data = build_heat_data(positions)
+        positions_data = data_locker.read_positions()
+        positions_data = calc_services.prepare_positions_for_display(positions_data)
+        # Suppose you have a build_heat_data function
+        heat_data = build_heat_data(positions_data)
         return render_template("heat.html", heat_data=heat_data)
     except Exception as e:
-        logger.error(f"Error generating heat report: {e}", exc_info=True)
-        return jsonify({"error": f"Failed to generate heat report: {e}"}), 500
+        logger.error(f"Error generating heat page: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 def build_heat_data(positions):
-    logger.debug("Building heat data aggregator structure.")
-    assets = ["BTC", "ETH", "SOL"]
-    heat_data = {asset: {"short": None, "long": None} for asset in assets}
-    heat_data["totals"] = {
-        "short": {"collateral": 0, "value": 0, "leverage": 0, "travel_percent": 0, "heat_index": 0, "size": 0},
-        "long": {"collateral": 0, "value": 0, "leverage": 0, "travel_percent": 0, "heat_index": 0, "size": 0}
-    }
-
-    def aggregate_positions(pos_list):
-        if not pos_list:
-            return None
-        agg = {"collateral": 0.0, "value": 0.0, "leverage": 0.0, "travel_percent": 0.0, "heat_index": 0.0, "size": 0.0}
-        count = len(pos_list)
-        for pos in pos_list:
-            pos.setdefault("heat_index", 0.0)
-            agg["collateral"] += pos.get("collateral", 0.0)
-            agg["value"] += pos.get("value", 0.0)
-            agg["size"] += pos.get("size", 0.0)
-            agg["heat_index"] += pos.get("heat_index", 0.0)
-            agg["travel_percent"] += pos.get("current_travel_percent", 0.0)
-            agg["leverage"] += pos.get("leverage", 0.0)
-
-        if count > 0:
-            agg["leverage"] /= count
-            agg["travel_percent"] /= count
-        return agg
-
-    short_positions = {asset: [] for asset in assets}
-    long_positions = {asset: [] for asset in assets}
-
-    for pos in positions:
-        asset = pos.get("asset_type", "").upper()
-        ptype = pos.get("position_type", "Long").capitalize()
-        pos.setdefault("heat_index", 0.0)
-        if asset in assets:
-            if ptype == "Short":
-                short_positions[asset].append(pos)
-            else:
-                long_positions[asset].append(pos)
-
-    # For each asset, aggregate short/long
-    for asset in assets:
-        s_agg = aggregate_positions(short_positions[asset])
-        l_agg = aggregate_positions(long_positions[asset])
-        heat_data[asset]["short"] = s_agg
-        heat_data[asset]["long"] = l_agg
-
-        if s_agg:
-            heat_data["totals"]["short"]["collateral"] += s_agg["collateral"]
-            heat_data["totals"]["short"]["value"] += s_agg["value"]
-            heat_data["totals"]["short"]["size"] += s_agg["size"]
-            heat_data["totals"]["short"]["heat_index"] += s_agg["heat_index"]
-            heat_data["totals"]["short"]["travel_percent"] += s_agg["travel_percent"]
-            heat_data["totals"]["short"]["leverage"] += s_agg["leverage"]
-
-        if l_agg:
-            heat_data["totals"]["long"]["collateral"] += l_agg["collateral"]
-            heat_data["totals"]["long"]["value"] += l_agg["value"]
-            heat_data["totals"]["long"]["size"] += l_agg["size"]
-            heat_data["totals"]["long"]["heat_index"] += l_agg["heat_index"]
-            heat_data["totals"]["long"]["travel_percent"] += l_agg["travel_percent"]
-            heat_data["totals"]["long"]["leverage"] += l_agg["leverage"]
-
-    return heat_data
+    # Sample logic:
+    return {"dummy": "Implement your logic here."}
 
 # ------------------------------------------------------------------
-# OPTIONAL PRICE FETCH
+# SYSTEM CONFIG
 # ------------------------------------------------------------------
-@app.route("/update-prices", methods=["POST"])
-def update_prices_now():
-    logger.info("update_prices_now route called - stub for external PriceMonitor logic.")
-    return redirect(url_for("prices"))
+@app.route("/config", methods=["GET", "POST"])
+def system_config():
+    """
+    Example system config page if needed
+    """
+    config_data = AppConfig.load("sonic_config.json")
+
+    if request.method == "POST":
+        # update some system config fields
+        new_logging_enabled = (request.form.get("logging_enabled") == "on")
+        config_data.system_config.logging_enabled = new_logging_enabled
+        # etc ...
+        with open("sonic_config.json", "w") as f:
+            f.write(config_data.json(indent=2))
+        return redirect(url_for("system_config"))
+
+    return render_template("system_config.html", config=config_data)
 
 # ------------------------------------------------------------------
-# If you want to run it directly (not via 'flask run'):
+# MAIN ENTRY (if used)
 # ------------------------------------------------------------------
 if __name__ == "__main__":
-    logger.debug("Running web_app.py directly - enabling debug=True.")
-    app.run(debug=True)
+    # If you directly run python web_app.py, you can do:
+    app.run(debug=True, host="0.0.0.0", port=5000)
