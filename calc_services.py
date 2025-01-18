@@ -9,26 +9,30 @@ class CalcServices:
             "collateral": [(0, 500, "lightgreen"), (500, 1000, "yellow"), (1000, 2000, "orange"), (2000, 10000, "red")]
         }
 
+    # calc_services.py
+
     def calculate_value(self, position: dict) -> float:
         """
-        Calculate the value of a position based on size, entry price, current price, and position type.
-        Supports both long and short positions.
+        Safely calculates the position value. If size <= 0 or current_price <= 0,
+        logs a warning and returns 0.0 instead of raising.
         """
-        size = float(position.get("size", 0))
-        entry_price = float(position.get("entry_price", 0))
-        current_price = float(position.get("current_price", 0))
-        position_type = position.get("position_type", "long").lower()
+        size = position.get("size", 0.0)
+        current_price = position.get("current_price", 0.0)
+        entry_price = position.get("entry_price", 0.0)
+        position_type = position.get("position_type", "Long").lower()
 
         if size <= 0 or current_price <= 0:
-            raise ValueError("Size and current price must be greater than zero.")
+            print(f"[WARNING] Invalid size or current_price (size={size}, current_price={current_price}). "
+                  "Returning value=0.0.")
+            return 0.0
 
         if position_type == "long":
             return round(size * current_price, 2)
         elif position_type == "short":
-            # For short positions: Value = Size * (2 * Entry Price - Current Price)
             return round(size * (2 * entry_price - current_price), 2)
         else:
-            raise ValueError(f"Unsupported position type: {position_type}")
+            print(f"[WARNING] Unsupported position type: {position_type}. Returning value=0.0.")
+            return 0.0
 
     def calculate_leverage(self, size: float, collateral: float) -> Optional[float]:
         """
@@ -39,9 +43,8 @@ class CalcServices:
         return round(size / collateral, 2)
 
     def calculate_liquid_distance(self, current_price: float, liquidation_price: float) -> float:
-        """
-        Calculate the distance between the current price and liquidation price.
-        """
+        current_price = current_price if current_price is not None else 0.0
+        liquidation_price = liquidation_price if liquidation_price is not None else 0.0
         return round(abs(liquidation_price - current_price), 2)
 
     @staticmethod
@@ -79,7 +82,7 @@ class CalcServices:
             print(f"Error calculating travel percent: {e}")
             return 0.0
 
-    def calculate_heat_points(self, position: dict) -> Optional[float]:
+    def calculate_heat_index(self, position: dict) -> Optional[float]:
         """
         Calculate heat points based on size, leverage, and collateral.
         """
@@ -166,27 +169,50 @@ class CalcServices:
 
     def prepare_positions_for_display(self, positions: list) -> list:
         """
-        Preprocess positions to include calculated fields (e.g., heat index, colors).
+        For each position, skip or default if current_price/size is missing/zero,
+        then fill aggregator fields like 'value', 'heat_index', etc.
         """
         processed_positions = []
         for pos in positions:
-            # Validate position
-            self.validate_position(pos)
+            # 2.1) If current_price is missing (None) or <= 0, you can decide how to handle:
+            current_price = pos.get("current_price")
+            size = pos.get("size", 0.0)
 
-            # Add calculated fields
-            pos["heat_points"] = self.calculate_heat_points(pos)
-            pos["travel_percent_color"] = self.get_color(pos.get("travel_percent", 0), "travel_percent")
-            pos["heat_index_color"] = self.get_color(pos["heat_points"], "heat_index")
-            pos["collateral_color"] = self.get_color(pos.get("collateral", 0), "collateral")
+            if not current_price or current_price <= 0:
+                # EITHER skip the full aggregator logic
+                # or set pos["value"] to 0.0 explicitly here:
+                pos["value"] = 0.0
+                print(
+                    f"[INFO] Skipping full aggregator for pos id={pos.get('id')} due to invalid current_price={current_price}")
+            else:
+                # 2.2) Otherwise, do normal aggregator logic:
+                # => calls our new safe calculate_value
+                pos["value"] = self.calculate_value(pos)
+
+            # 2.3) Example: if you also want to compute heat_index anyway:
+            pos["heat_index"] = self.calculate_heat_index(pos) or 0.0
+
+            # 2.4) Travel percent logic, etc.
+            if "current_travel_percent" not in pos or pos["current_travel_percent"] is None:
+                pos["current_travel_percent"] = self.calculate_travel_percent(
+                    pos.get("entry_price", 0.0),
+                    pos.get("current_price", 0.0),
+                    pos.get("liquidation_price", 0.0)
+                ) or 0.0
+
+            # 2.5) Liquid distance
             pos["liquid_distance"] = self.calculate_liquid_distance(
-                pos.get("current_price", 0), pos.get("liquidation_price", 0)
+                pos.get("current_price", 0.0),
+                pos.get("liquidation_price", 0.0)
             )
-            pos["value"] = self.calculate_value(pos)
+
+            # 2.6) Example color-coded fields
+            pos["travel_percent_color"] = self.get_color(pos["current_travel_percent"], "travel_percent")
+            pos["heat_index_color"] = self.get_color(pos["heat_index"], "heat_index")
 
             processed_positions.append(pos)
 
         return processed_positions
-
     def calculate_balance_metrics(self, positions: List[Dict]) -> Dict:
         """
         Calculate metrics for the balance report (short vs. long comparisons).

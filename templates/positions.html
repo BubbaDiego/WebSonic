@@ -13,7 +13,7 @@
       <th>📏 Size</th>
       <th>⚙️ Leverage</th>
       <th>📉 Travel %</th>
-      <th>🔥 Heat Points</th>
+      <th>🔥 Heat Index</th>  <!-- Renamed in header -->
       <th>💧 Liquidation Price</th>
       <th>Actions</th>
     </tr>
@@ -91,10 +91,10 @@
         {% endif %}
       </td>
 
-      <!-- Heat Points -->
+      <!-- Heat Index -->
       <td>
-        {% if pos.heat_points is not none %}
-          {{ "{:,}".format(pos.heat_points) }}
+        {% if pos.heat_index is not none %}
+          {{ "{:,}".format(pos.heat_index) }}
         {% else %}
           N/A
         {% endif %}
@@ -175,7 +175,10 @@
       <td>{{ "{:,}".format(totals.get("total_size", 0)) }}</td>
       <td>{{ "{:,}".format(totals.get("avg_leverage", 0)) }}</td>
       <td>{{ "{:,}".format(totals.get("avg_travel_percent", 0)) }}%</td>
-      <td>{{ "{:,}".format(totals.get("avg_heat_points", 0)) }}</td>
+
+      <!-- Now referencing "avg_heat_index" instead of "avg_heat_points" -->
+      <td>{{ "{:,}".format(totals.get("avg_heat_index", 0)) }}</td>
+
       <td></td>
       <td></td>
     </tr>

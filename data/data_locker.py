@@ -109,8 +109,18 @@ class DataLocker:
     # ----------------------------------------------------------------
     def create_position(self, position: dict):
         """
-        Inserts a position into the DB. 
+        Inserts a position into the DB after ensuring size and current_price are > 0.
         """
+        size = position.get("size", 0.0)
+        current_price = position.get("current_price", 0.0)
+
+        # Enforce that size and current_price must be strictly > 0
+        if size <= 0:
+            raise ValueError(f"Refusing to create invalid position: size={size}")
+        if current_price <= 0:
+            raise ValueError(f"Refusing to create invalid position: current_price={current_price}")
+
+        # Now proceed to store valid data:
         try:
             self.cursor.execute('''
                 INSERT INTO positions (
@@ -128,15 +138,15 @@ class DataLocker:
                 position.get("current_travel_percent", 0.0),
                 position.get("value", 0.0),
                 position.get("collateral", 0.0),
-                position.get("size", 0.0),
+                size,  # validated above
                 position.get("wallet", "Default"),
                 position.get("leverage", 1.0),
                 position.get("last_updated") or datetime.datetime.now().isoformat(),
-                position.get("current_price"),
+                current_price,  # validated above
                 position.get("liquidation_distance")
             ))
             self.conn.commit()
-            self.logger.debug(f"Position created: {position}")
+            self.logger.debug(f"Position created successfully: {position}")
         except sqlite3.IntegrityError as e:
             self.logger.error(f"IntegrityError creating position: {e}", exc_info=True)
         except Exception as e:
