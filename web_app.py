@@ -291,29 +291,38 @@ def build_heat_data(positions):
 # UPLOAD POSITIONS
 # ------------------------------------------------------------------
 @app.route("/upload-positions", methods=["POST"])
+@app.route("/upload-positions", methods=["POST"])
 def upload_positions():
-    """
-    Expects a JSON file with a 'positions' list. Uses DataLocker.import_portfolio_data.
-    """
     if "file" not in request.files:
         return jsonify({"error": "No file uploaded."}), 400
     file = request.files["file"]
     if file.filename == "":
         return jsonify({"error": "No file selected."}), 400
 
-    import json
     try:
+        import json
         data = json.load(file)
         if "positions" not in data or not isinstance(data["positions"], list):
-            return jsonify({"error": "Invalid JSON structure"}), 400
+            return jsonify({"error": "Invalid JSON structure."}), 400
 
-        data_locker.import_portfolio_data(data)
-        return redirect("/positions")
+        for position in data["positions"]:
+            # Validate required fields before inserting
+            if not position.get("asset_type"):
+                raise ValueError("Missing asset_type in uploaded data.")
+
+            # Insert the position
+            data_locker.create_position(position)
+
+        return redirect(url_for("positions"))
+    except ValueError as e:
+        app.logger.error(f"Validation error: {e}")
+        return jsonify({"error": str(e)}), 400
     except json.JSONDecodeError:
         return jsonify({"error": "Invalid JSON format."}), 400
     except Exception as e:
         app.logger.error(f"Error importing positions: {e}", exc_info=True)
         return jsonify({"error": f"Failed to process file: {e}"}), 500
+
 
 # ------------------------------------------------------------------
 # SYSTEM CONFIG ROUTE

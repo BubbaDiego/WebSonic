@@ -40,7 +40,7 @@ class PriceMonitor:
     async def initialize_monitor(self):
         try:
             # Initialize DataLocker
-            self.data_locker = await DataLocker.get_instance(self.config.system_config.db_path)
+            self.data_locker = DataLocker.get_instance(self.config.system_config.db_path)
             logger.info("PriceMonitor initialized with configuration.")
         except Exception as e:
             logger.error(f"Failed to initialize DataLocker: {e}")
@@ -48,7 +48,7 @@ class PriceMonitor:
 
     async def get_previous_prices(self) -> Dict[str, float]:
         try:
-            previous_prices = await self.data_locker.get_latest_prices()
+            previous_prices = self.data_locker.get_latest_prices()
             return previous_prices
         except AttributeError as e:
             logger.error(f"'DataLocker' object has no attribute 'get_latest_prices': {e}")
@@ -59,7 +59,7 @@ class PriceMonitor:
 
     async def update_prices(self):
         try:
-            previous_prices = await self.get_previous_prices()
+            previous_prices = self.get_previous_prices()
             # Logic to fetch new prices from APIs
             # For demonstration, we'll use mock data
             new_prices = {
@@ -68,7 +68,7 @@ class PriceMonitor:
                 "SOL": 150.0
             }
             for asset, price in new_prices.items():
-                await self.data_locker.insert_or_update_price(asset, price, "CoinGecko")
+                self.data_locker.insert_or_update_price(asset, price, "CoinGecko")
             logger.info("Prices updated successfully.")
         except Exception as e:
             logger.error(f"Error updating prices: {e}")
