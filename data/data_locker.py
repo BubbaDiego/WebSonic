@@ -1,52 +1,35 @@
-# data/data_locker.py
-
 import os
 import aiosqlite
 import sqlite3  # If you also do some synchronous calls
 import logging
 import datetime
 from typing import Dict, List, Optional
+from uuid import uuid4
 
 logger = logging.getLogger("DataLockerLogger")
-
 
 class DataLocker:
     _instance = None
 
     def __init__(self, db_path: str):
-        """
-        Initializes the DataLocker instance with a direct SQLite connection.
-
-        If your code calls .cursor, .conn, etc., you might keep them.
-        Otherwise, consider using only aiosqlite with async methods.
-        """
         self.db_path = db_path
         self.logger = logger
 
-        # Possibly keep a synchronous connection if your existing code uses it:
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.cursor = self.conn.cursor()
 
-        self.initialize_database_sync()  # Sync call to ensure tables exist
+        self.initialize_database_sync()
 
     @classmethod
     def get_instance(cls, db_path: str = "data/mother_brain.db") -> 'DataLocker':
-        """
-        A simple singleton pattern for synchronous usage.
-        If you want async, define an async get_instance with aiosqlite.
-        """
         if cls._instance is None:
             cls._instance = cls(db_path)
         return cls._instance
 
     def initialize_database_sync(self):
-        """
-        Synchronous DB initialization for existing usage.
-        If you prefer async, define an async version. 
-        We do both here for illustration.
-        """
         self.logger.debug(f"Initializing database (sync) at {self.db_path}")
+
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS prices (
                 asset_type TEXT PRIMARY KEY,
@@ -62,6 +45,7 @@ class DataLocker:
                 source TEXT
             )
         ''')
+
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS positions (
                 id TEXT PRIMARY KEY,
@@ -70,20 +54,21 @@ class DataLocker:
                 entry_price REAL NOT NULL,
                 liquidation_price REAL NOT NULL,
                 current_travel_percent REAL NOT NULL,
-                value REAL NOT NULL,
+                value REAL NOT NULL DEFAULT 0.0,
                 collateral REAL NOT NULL,
                 size REAL NOT NULL,
-                wallet TEXT NOT NULL,
+                wallet TEXT NOT NULL DEFAULT 'Default',
                 leverage REAL,
                 last_updated DATETIME,
                 alert_reference_id TEXT,
                 hedge_buddy_id TEXT,
                 current_price REAL,
                 liquidation_distance REAL,
-                heat_points REAL,
-                current_heat_points REAL
+                heat_index REAL,
+                current_heat_index REAL
             )
         ''')
+
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS alerts (
                 id TEXT PRIMARY KEY,
@@ -109,18 +94,29 @@ class DataLocker:
     # ----------------------------------------------------------------
     def create_position(self, position: dict):
         """
-        Inserts a position into the DB after ensuring size and current_price are > 0.
+        Inserts a position into the DB. 
+        - Auto-generate a UUID if `id` is missing.
+        - If 'value' is missing, auto-calc from size*current_price.
+        - If 'wallet' is missing, fallback to 'Default'.
+        - If size or current_price <= 0, raise ValueError.
         """
-        size = position.get("size", 0.0)
-        current_price = position.get("current_price", 0.0)
+        if not position.get("id"):
+            position["id"] = str(uuid4())
 
-        # Enforce that size and current_price must be strictly > 0
+        size = float(position.get("size", 0.0))
+        current_price = float(position.get("current_price", 0.0))
+
         if size <= 0:
             raise ValueError(f"Refusing to create invalid position: size={size}")
         if current_price <= 0:
             raise ValueError(f"Refusing to create invalid position: current_price={current_price}")
 
-        # Now proceed to store valid data:
+        if "value" not in position or position["value"] is None:
+            position["value"] = size * current_price
+
+        if "wallet" not in position or not position["wallet"]:
+            position["wallet"] = "Default"
+
         try:
             self.cursor.execute('''
                 INSERT INTO positions (
@@ -130,19 +126,19 @@ class DataLocker:
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
-                position.get("id"),
+                position["id"],
                 position.get("asset_type"),
                 position.get("position_type"),
-                position.get("entry_price", 0.0),
-                position.get("liquidation_price", 0.0),
-                position.get("current_travel_percent", 0.0),
-                position.get("value", 0.0),
-                position.get("collateral", 0.0),
-                size,  # validated above
-                position.get("wallet", "Default"),
-                position.get("leverage", 1.0),
+                float(position.get("entry_price", 0.0)),
+                float(position.get("liquidation_price", 0.0)),
+                float(position.get("current_travel_percent", 0.0)),
+                float(position["value"]),
+                float(position.get("collateral", 0.0)),
+                size,
+                position["wallet"],
+                float(position.get("leverage", 1.0)),
                 position.get("last_updated") or datetime.datetime.now().isoformat(),
-                current_price,  # validated above
+                current_price,
                 position.get("liquidation_distance")
             ))
             self.conn.commit()
@@ -153,12 +149,7 @@ class DataLocker:
             self.logger.error(f"Error creating position: {e}", exc_info=True)
 
     def update_position(self, position_id: str, new_size: float = None, new_collateral: float = None):
-        """
-        Updates a position's size/collateral or other fields in the database.
-        Extend if needed for more fields.
-        """
         try:
-            # Example only updates size + collateral
             self.cursor.execute('''
                 UPDATE positions
                 SET size = ?, collateral = ?
@@ -173,26 +164,43 @@ class DataLocker:
     def read_positions(self) -> List[dict]:
         """
         Reads all positions from the DB. 
-        Returns a list of dictionaries.
+        If any row has an id = None or empty, we assign a UUID and update it,
+        ensuring every position returned to the caller has a valid 'id'.
         """
         try:
             self.logger.debug("Reading positions from DB.")
-            self.cursor.execute("SELECT * FROM positions")
+            self.cursor.execute("SELECT rowid, * FROM positions")
             rows = self.cursor.fetchall()
-            positions = [dict(row) for row in rows]
+
+            positions = []
+            for row in rows:
+                pos_dict = dict(row)  # Convert row to a dict
+                # rowid is included so we can update that row if ID is missing
+                rowid = pos_dict["rowid"]
+                current_id = pos_dict.get("id")
+
+                if not current_id:
+                    # Generate a new UUID for this record
+                    new_id = str(uuid4())
+                    pos_dict["id"] = new_id
+
+                    # Update the DB row in place
+                    self.cursor.execute(
+                        "UPDATE positions SET id=? WHERE rowid=?",
+                        (new_id, rowid)
+                    )
+                    self.conn.commit()
+                    self.logger.debug(f"Assigned new ID={new_id} to position rowid={rowid} previously had None/empty.")
+
+                positions.append(pos_dict)
+
             return positions
+
         except Exception as e:
             self.logger.error(f"Error reading positions: {e}", exc_info=True)
             return []
 
-    # Optional: if you had get_positions, you could unify them
-    # def get_positions(self) -> List[dict]:
-    #     return self.read_positions()
-
     def import_portfolio_data(self, portfolio):
-        """
-        Expects a dict with 'positions' key which is a list of positions.
-        """
         if "positions" not in portfolio:
             self.logger.error("No 'positions' key in imported portfolio data.")
             return
@@ -206,9 +214,6 @@ class DataLocker:
     # PRICES
     # ----------------------------------------------------------------
     def read_prices(self) -> List[dict]:
-        """
-        Reads all prices from the DB, returning them as list of dicts.
-        """
         try:
             self.logger.debug("Reading prices from DB.")
             self.cursor.execute('SELECT * FROM prices')
@@ -220,9 +225,6 @@ class DataLocker:
 
     def insert_or_update_price(self, asset_type: str, current_price: float, source: str,
                                timestamp: Optional[datetime.datetime] = None):
-        """
-        Inserts or updates a price record for a given asset_type using ON CONFLICT.
-        """
         if timestamp is None:
             timestamp = datetime.datetime.now()
         try:
@@ -244,38 +246,22 @@ class DataLocker:
         except Exception as e:
             self.logger.error(f"Error inserting/updating price for {asset_type}: {e}", exc_info=True)
 
-    # If you have older code that calls create_price, define a quick method:
     def create_price(self, asset_type: str, price: float, source: str, timestamp: Optional[datetime.datetime]):
-        """
-        Legacy method to keep older code from breaking. 
-        Calls insert_or_update_price under the hood.
-        """
         self.insert_or_update_price(asset_type, price, source, timestamp)
 
     # ----------------------------------------------------------------
     # Sync / Dependent Data
     # ----------------------------------------------------------------
     def sync_dependent_data(self):
-        """
-        Example placeholder that might recalc or sync positions with prices
-        or do other logic. 
-        """
         self.logger.debug("sync_dependent_data called - implement your logic here if needed.")
 
     def sync_calc_services(self):
-        """
-        Another placeholder for your calc services, e.g. average leverage,
-        travel percent, etc.
-        """
         self.logger.debug("sync_calc_services called - implement your logic here if needed.")
 
     # ----------------------------------------------------------------
     # Closing / Cleanup
     # ----------------------------------------------------------------
     def close(self):
-        """
-        Closes the DB connection if needed. 
-        """
         if self.conn:
             self.conn.close()
             self.logger.debug("Database connection closed.")

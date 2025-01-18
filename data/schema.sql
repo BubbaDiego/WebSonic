@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS positions (
     hedge_buddy_id TEXT,
     current_price REAL,
     liquidation_distance REAL,
-    heat_points REAL,
+    heat_index REAL,
     current_heat_points REAL
 );
 

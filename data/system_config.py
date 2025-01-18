@@ -1,4 +1,3 @@
-
 import os
 import json
 import pyfiglet
@@ -7,7 +6,8 @@ from rich.table import Table
 
 class SysConfig:
     """
-    A class to handle system configuration by reading various files from different paths and storing them as attributes.
+    A class to handle system configuration by reading various files from different paths
+    and storing them as attributes.
     """
 
     def __init__(self, config_path):
@@ -16,7 +16,7 @@ class SysConfig:
         self.api_config = {}
         self.notification_config = {}
         self.price_config = {}
-        self.alert_config = {}
+        self.alert_ranges = {}    # <-- replaced old "alert_config" with "alert_ranges"
         self.input_paths = {}
         self.output_paths = {}
         self.load_config()
@@ -31,7 +31,8 @@ class SysConfig:
             self.api_config = config_data.get('api_config', {})
             self.notification_config = config_data.get('notification_config', {})
             self.price_config = config_data.get('price_config', {})
-            self.alert_config = config_data.get('alert_config', {})
+            # references "alert_ranges" from JSON
+            self.alert_ranges = config_data.get('alert_ranges', {})
             self.input_paths = config_data.get('input_paths', {})
             self.output_paths = config_data.get('output_paths', {})
 
@@ -45,7 +46,7 @@ class SysConfig:
             self.api_config.update(config_data.get('api_config', {}))
             self.notification_config.update(config_data.get('notification_config', {}))
             self.price_config.update(config_data.get('price_config', {}))
-            self.alert_config.update(config_data.get('alert_config', {}))
+            self.alert_ranges.update(config_data.get('alert_ranges', {}))
             self.input_paths.update(config_data.get('input_paths', {}))
             self.output_paths.update(config_data.get('output_paths', {}))
         print(f"Configuration imported from {import_path}")
@@ -60,7 +61,8 @@ class SysConfig:
                 'api_config': self.api_config,
                 'notification_config': self.notification_config,
                 'price_config': self.price_config,
-                'alert_config': self.alert_config,
+                # ensure we dump "alert_ranges"
+                'alert_ranges': self.alert_ranges,
                 'input_paths': self.input_paths,
                 'output_paths': self.output_paths
             }, file, indent=4)
@@ -76,12 +78,13 @@ class SysConfig:
         table.add_column("Parameter", style="cyan", no_wrap=True)
         table.add_column("Value", style="magenta")
 
+        # updated the label from "Alert Config" to "Alert Ranges"
         for section, config in {
             "System Config": self.system_config,
             "API Config": self.api_config,
             "Notification Config": self.notification_config,
             "Price Config": self.price_config,
-            "Alert Config": self.alert_config,
+            "Alert Ranges": self.alert_ranges,
             "Input Paths": self.input_paths,
             "Output Paths": self.output_paths,
         }.items():
@@ -91,10 +94,11 @@ class SysConfig:
 
         console.print(table)
 
+
 def main_menu():
     console = Console()
     while True:
-        os.system('cls' if os.name == 'nt' else 'clear')  # Clear screen for better UX
+        os.system('cls' if os.name == 'nt' else 'clear')
         title = pyfiglet.figlet_format("SysConfig", font="slant")
         console.print(f"[bold cyan]{title}[/bold cyan]", justify="center")
         console.print("[bold magenta]Main Menu[/bold magenta]", justify="center")
@@ -120,6 +124,3 @@ def main_menu():
             break
         else:
             console.print("[red]Invalid choice. Please select a valid option (1-3).[/red]")
-
-if __name__ == "__main__":
-    main_menu()

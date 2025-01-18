@@ -26,18 +26,11 @@ calc_services = CalcServices()
 
 @app.route("/")
 def index():
-    """
-    Root route -> redirect to /positions
-    """
     logger.debug("Reached / (root). Redirecting to /positions.")
     return redirect(url_for("positions"))
 
 @app.route("/positions", methods=["GET", "POST"])
 def positions():
-    """
-    GET: Show positions table
-    POST: Create a new position from form data
-    """
     logger.debug("Entered /positions route.")
 
     if request.method == "POST":
@@ -58,7 +51,7 @@ def positions():
 
         return redirect(url_for("positions"))
 
-    # Else it's a GET
+    # GET => fetch positions & prices
     logger.debug("Reading positions/prices from DB.")
     positions_data = data_locker.read_positions()
     prices_data = data_locker.read_prices()
@@ -72,7 +65,6 @@ def positions():
     config_data = AppConfig.load("sonic_config.json")
 
     def get_alert_status(value, low, medium, high):
-        # color-coded logic based on thresholds
         if high is None:
             high = float("inf")
         if value <= low:
@@ -124,9 +116,8 @@ def positions():
             trav_ranges.medium or 9999999.0,
             trav_ranges.high
         )
-        # You can do more fields if needed
 
-    # Round numeric values for display
+    # Round numeric fields for display
     def roundify(val):
         return round(val, 2) if isinstance(val, (int, float)) else val
 
@@ -150,14 +141,10 @@ def positions():
 
 @app.route("/edit-position/<position_id>", methods=["POST"])
 def edit_position(position_id):
-    """
-    Update an existing position (collateral/size)
-    """
-    logger.debug(f"Editing position {position_id}")
+    logger.debug(f"Editing position {position_id}.")
     try:
         size = float(request.form.get("size", 0.0))
         collateral = float(request.form.get("collateral", 0.0))
-
         data_locker.update_position(position_id, new_size=size, new_collateral=collateral)
         data_locker.sync_dependent_data()
         data_locker.sync_calc_services()
@@ -168,9 +155,6 @@ def edit_position(position_id):
 
 @app.route("/delete-position/<position_id>", methods=["POST"])
 def delete_position(position_id):
-    """
-    Delete a single position
-    """
     logger.debug(f"Deleting position {position_id}")
     try:
         data_locker.cursor.execute("DELETE FROM positions WHERE id = ?", (position_id,))
@@ -195,48 +179,74 @@ def delete_all_positions():
         return jsonify({"error": str(e)}), 500
 
 @app.route("/upload-positions", methods=["POST"])
+@app.route("/upload-positions", methods=["POST"])
 def upload_positions():
     """
-    Accept JSON file -> insert positions
+    Accept JSON (or .txt with JSON) -> auto-calc fields -> insert
     """
-    logger.debug("Uploading positions from JSON.")
+    logger.debug("upload_positions route triggered.")
     try:
         if 'file' not in request.files:
-            return jsonify({"error": "No file part"}), 400
+            logger.error("No file part in request.")
+            return jsonify({"error": "No file provided"}), 400
 
         file = request.files['file']
         if not file or file.filename == '':
+            logger.error("File is blank.")
             return jsonify({"error": "No file selected"}), 400
+
+        logger.debug(f"Received file: {file.filename}")
 
         # parse JSON
         json_data = json.load(file)
-        for item in json_data:
-            asset_type = item.get("asset_type", "BTC")
-            position_type = item.get("position_type", "Long")
-            collateral = float(item.get("collateral", 0.0))
-            size = float(item.get("size", 0.0))
-            entry_price = float(item.get("entry_price", 0.0))
-            liquidation_price = float(item.get("liquidation_price", 0.0))
+        if not isinstance(json_data, list):
+            logger.error("Uploaded JSON must be a list of positions.")
+            return jsonify({"error": "JSON is not a list"}), 400
 
+        # For each item, auto-calc fields using calc_services
+        inserted_count = 0
+        for item in json_data:
+            # item should be a dict with at least 'asset_type', 'position_type', etc.
+            # 1) run prepare_positions_for_display on a single-item list:
+            prepped_list = calc_services.prepare_positions_for_display([item])
+            prepped_item = prepped_list[0]  # now it has 'current_travel_percent', 'heat_index', etc.
+
+            # 2) read back the fields we need to insert
+            asset_type = prepped_item.get("asset_type", "BTC")
+            position_type = prepped_item.get("position_type", "Long")
+            collateral = float(prepped_item.get("collateral", 0.0))
+            size = float(prepped_item.get("size", 0.0))
+            entry_price = float(prepped_item.get("entry_price", 0.0))
+            liquidation_price = float(prepped_item.get("liquidation_price", 0.0))
+            current_travel_percent = float(prepped_item.get("current_travel_percent", 0.0))
+            heat_index = float(prepped_item.get("heat_index", 0.0))
+
+            # 3) Insert into DB
+            # Make sure your table has these columns:
+            # current_travel_percent and heat_index
             data_locker.cursor.execute("""
                 INSERT INTO positions
-                (asset_type, position_type, collateral, size, entry_price, liquidation_price)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (asset_type, position_type, collateral, size, entry_price, liquidation_price))
+                (asset_type, position_type, collateral, size, entry_price, liquidation_price,
+                 current_travel_percent, heat_index)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                asset_type, position_type, collateral, size, entry_price, liquidation_price,
+                current_travel_percent, heat_index
+            ))
+
+            inserted_count += 1
 
         data_locker.conn.commit()
-        logger.debug("Positions uploaded successfully.")
-        return jsonify({"success": True}), 200
+        logger.debug(f"Positions uploaded successfully. Inserted {inserted_count} rows.")
+        return jsonify({"success": True, "inserted": inserted_count}), 200
 
     except Exception as e:
         logger.error(f"Error uploading positions: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
+
 @app.route("/prices", methods=["GET", "POST"])
 def prices():
-    """
-    Example route for updating or listing prices
-    """
     logger.debug("Entered /prices route.")
     if request.method == "POST":
         try:
@@ -251,52 +261,42 @@ def prices():
     prices_data = data_locker.read_prices()
     def roundify(val):
         return round(val, 2) if isinstance(val, (int, float)) else val
-
     for pr in prices_data:
         for k, v in pr.items():
             pr[k] = roundify(v)
     return render_template("prices.html", prices=prices_data)
 
-
 @app.route("/alert-options", methods=["GET", "POST"])
 def alert_options():
-    """
-    Example route to update your alert ranges
-    """
-    config_data = AppConfig.load("sonic_config.json")
+    config_data = AppConfig.load("sonic_config.json")  # or however you load
     if request.method == "POST":
-        try:
-            # update heat_index as example
-            new_heat_index_low = float(request.form["heat_index_low"])
-            new_heat_index_medium = float(request.form["heat_index_medium"])
-            raw_heat_index_high = request.form.get("heat_index_high", "")
-            new_heat_index_high = float(raw_heat_index_high) if raw_heat_index_high else None
+        # e.g. read from form
+        new_heat_index_low = float(request.form["heat_index_low"])
+        new_heat_index_medium = float(request.form["heat_index_medium"])
+        raw_heat_index_high = request.form.get("heat_index_high", "")
+        new_heat_index_high = float(raw_heat_index_high) if raw_heat_index_high else None
 
-            config_data.alert_ranges.heat_index_ranges.low = new_heat_index_low
-            config_data.alert_ranges.heat_index_ranges.medium = new_heat_index_medium
-            config_data.alert_ranges.heat_index_ranges.high = new_heat_index_high
+        # Now store in config_data.alert_ranges (NOT alert_config)
+        config_data.alert_ranges.heat_index_ranges.low = new_heat_index_low
+        config_data.alert_ranges.heat_index_ranges.medium = new_heat_index_medium
+        config_data.alert_ranges.heat_index_ranges.high = new_heat_index_high
 
-            data_dict = config_data.model_dump()
-            with open("sonic_config.json", "w") as f:
-                json.dump(data_dict, f, indent=2)
+        # And so on for the other fields (collateral, value, etc.)
 
-            return redirect(url_for("alert_options"))
-        except Exception as e:
-            logger.error(f"Error updating alert ranges: {e}", exc_info=True)
-            return jsonify({"error": str(e)}), 500
+        # Then dump to JSON
+        data_dict = config_data.model_dump()
+        with open("sonic_config.json", "w") as f:
+            json.dump(data_dict, f, indent=2)
+
+        return redirect(url_for("alert_options"))
 
     return render_template("alert_options.html", config=config_data)
-
 @app.route("/heat", methods=["GET"])
 def heat():
-    """
-    Example route for a 'heat' page
-    """
     logger.debug("Entered /heat route.")
     try:
         positions_data = data_locker.read_positions()
         positions_data = calc_services.prepare_positions_for_display(positions_data)
-        # if you have a real build_heat_data
         heat_data = build_heat_data(positions_data)
         return render_template("heat.html", heat_data=heat_data)
     except Exception as e:
@@ -304,14 +304,10 @@ def heat():
         return jsonify({"error": str(e)}), 500
 
 def build_heat_data(positions):
-    # placeholder
     return {"dummy": "Implement your logic here."}
 
 @app.route("/config", methods=["GET", "POST"])
 def system_config():
-    """
-    Example route for system config
-    """
     config_data = AppConfig.load("sonic_config.json")
     if request.method == "POST":
         new_logging_enabled = (request.form.get("logging_enabled") == "on")

@@ -1,104 +1,94 @@
-# test_price_monitor.py
+#!/usr/bin/env python3
 
-import pytest
-import asyncio
-from data.data_locker import DataLocker
-from data.config import AppConfig
-from price_monitor import PriceMonitor
-from datetime import datetime, timezone
-import json
+"""
+reset_db.py
+-----------
+Removes 'mother_brain.db' entirely and recreates the necessary tables
+with the new schema definitions. All old data is lost.
+"""
+
 import os
+import sqlite3
 
-@pytest.fixture(scope="module")
-async def locker():
-    locker_instance = await DataLocker.get_instance(db_path=":memory:")
-    yield locker_instance
-    await locker_instance.close()
+DB_PATH = os.path.abspath("data/mother_brain.db")
 
-@pytest.fixture(scope="module")
-def config(tmp_path):
-    config_data = {
-        "price_config": {
-            "assets": ["BTC"],
-            "currency": "USD",
-            "fetch_timeout": 10,
-            "backoff": {
-                "max_tries": 3,
-                "factor": 2,
-                "max_time": 30
-            }
-        },
-        "system_config": {
-            "logging_enabled": False,
-            "log_level": "DEBUG",
-            "console_output": False,
-            "log_file": null,
-            "db_path": "data/mother_brain.db",
-            "price_monitor_enabled": False,
-            "alert_monitor_enabled": False,
-            "sonic_monitor_loop_time": 10,
-            "last_price_update_time": null,
-            "email_config": null
-        },
-        "api_config": {
-            "coingecko_api_enabled": "ENABLE",
-            "kucoin_api_enabled": "ENABLE",
-            "coinmarketcap_api_enabled": "ENABLE",
-            "coinmarketcap_api_key": "TEST_KEY",
-            "binance_api_enabled": "ENABLE"
-        },
-        "alert_ranges": {
-            "heat_index_ranges": {
-                "low": 0,
-                "medium": 200,
-                "high": null
-            },
-            "collateral_ranges": {
-                "low": 0,
-                "medium": 1000,
-                "high": null
-            },
-            "value_ranges": {
-                "low": 0,
-                "medium": 2000,
-                "high": null
-            },
-            "size_ranges": {
-                "low": 0,
-                "medium": 15000,
-                "high": null
-            },
-            "leverage_ranges": {
-                "low": 0,
-                "medium": 5,
-                "high": null
-            },
-            "liquidation_distance_ranges": {
-                "low": 0,
-                "medium": 2,
-                "high": null
-            },
-            "travel_percent_ranges": {
-                "low": -50,
-                "medium": -20,
-                "high": null
-            }
-        }
-    }
-    config_file = tmp_path / "sonic_config.json"
-    with open(config_file, 'w') as f:
-        json.dump(config_data, f, indent=4)
-    return AppConfig.load(str(config_file))
+def main():
+    # 1) If the DB file exists, delete it to start fresh
+    if os.path.exists(DB_PATH):
+        print(f"Removing old database at: {DB_PATH}")
+        os.remove(DB_PATH)
 
-@pytest.mark.asyncio
-async def test_price_monitor_initialization(locker, config):
-    monitor = PriceMonitor(config_path=str(config.config_path))
-    monitor.config = config
-    monitor.logger = logging.getLogger("TestLogger")
-    monitor.logger.addHandler(logging.NullHandler())  # Suppress logs
-    monitor.data_locker = locker
-    assert monitor.assets == ["BTC"]
-    assert monitor.currency == "USD"
-    await monitor.store_prices({"BTC": 50000.0}, "CoinGecko")
-    prices = await locker.get_latest_prices()
-    assert prices["BTC"] == 50000.0
+    # 2) Recreate a fresh, empty DB
+    print(f"Creating new database at: {DB_PATH}")
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # 3) Create the tables from scratch
+    #    Price table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS prices (
+            asset_type TEXT PRIMARY KEY,
+            current_price REAL,
+            previous_price REAL,
+            avg_daily_swing REAL,
+            avg_1_hour REAL,
+            avg_3_hour REAL,
+            avg_6_hour REAL,
+            avg_24_hour REAL,
+            last_update_time DATETIME,
+            previous_update_time DATETIME,
+            source TEXT
+        )
+    """)
+
+    #    Positions table
+    #    Notice 'heat_index' & 'current_heat_index' columns and 'value' has DEFAULT 0.0
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS positions (
+            id TEXT PRIMARY KEY,
+            asset_type TEXT NOT NULL,
+            position_type TEXT NOT NULL,
+            entry_price REAL NOT NULL,
+            liquidation_price REAL NOT NULL,
+            current_travel_percent REAL NOT NULL,
+            value REAL NOT NULL DEFAULT 0.0,
+            collateral REAL NOT NULL,
+            size REAL NOT NULL,
+            wallet TEXT NOT NULL,
+            leverage REAL,
+            last_updated DATETIME,
+            alert_reference_id TEXT,
+            hedge_buddy_id TEXT,
+            current_price REAL,
+            liquidation_distance REAL,
+            heat_index REAL,
+            current_heat_index REAL
+        )
+    """)
+
+    #    Alerts table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS alerts (
+            id TEXT PRIMARY KEY,
+            alert_type TEXT NOT NULL,
+            trigger_value REAL NOT NULL,
+            notification_type TEXT NOT NULL,
+            last_triggered DATETIME,
+            status TEXT NOT NULL,
+            frequency INTEGER NOT NULL,
+            counter INTEGER NOT NULL,
+            liquidation_distance REAL NOT NULL,
+            target_travel_percent REAL NOT NULL,
+            liquidation_price REAL NOT NULL,
+            notes TEXT,
+            position_reference_id TEXT
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+    print("Database was rebuilt successfully with new schema!")
+
+if __name__ == "__main__":
+    main()

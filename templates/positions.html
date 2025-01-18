@@ -1,49 +1,32 @@
 {% extends "sonic_admin.html" %}
 {% block content %}
 
-<!-- Lighter overall page background could be placed in sonic_admin.html if you prefer -->
 <style>
-  body {
-    background-color: #a9c6e8; /* A lighter shade of blue or whichever color you prefer */
-  }
+  body { background-color: #a9c6e8; }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h2 class="text-dark">Positions</h2>
-  <!-- The emoji is now safely in HTML, not Python. -->
   <span style="font-size: 2rem;">📊</span>
 </div>
 
-<!-- White card container for the table -->
-<div class="card" style="border-radius: 10px;">
+<div class="card" style="border-radius:10px;">
   <div class="card-body p-0">
-
     <style>
-      /* Light green header row (2px border for emphasis) */
-      thead tr th {
-        background-color: #e5ffe5 !important;
-        border: 2px solid #ccc;
+      thead th {
+        background-color: #e5ffe5 !important; border: 2px solid #ccc;
       }
-      /* Light green totals row, bold text */
-      tfoot tr td {
-        background-color: #e5ffe5 !important;
-        border: 2px solid #ccc;
-        font-weight: bold;
+      tfoot td {
+        background-color: #e5ffe5 !important; border: 2px solid #ccc; font-weight:bold;
       }
-      /* Subtle body cell borders + white background */
-      tbody tr td {
-        border: 1px solid #ddd;
-        background-color: #fff;
+      tbody td {
+        border:1px solid #ddd; background-color:#fff;
       }
-      /* Center text & padding in all table cells */
       thead th, tbody td, tfoot td {
-        text-align: center;
-        vertical-align: middle;
-        padding: 8px;
+        text-align:center; vertical-align:middle; padding:8px;
       }
     </style>
 
-    <!-- The main Positions Table -->
     <table class="table mb-0">
       <thead>
         <tr>
@@ -62,132 +45,69 @@
       <tbody>
         {% for pos in positions %}
         <tr>
-          <!-- Asset + Logo -->
           <td>
             {% if pos.asset_type in ["BTC", "Bitcoin"] %}
-              <img src="/static/images/btc_logo.png" alt="BTC" style="width:20px; height:20px; margin-right:5px;">
+              <img src="/static/images/btc_logo.png" alt="BTC"
+                   style="width:20px; height:20px; margin-right:5px;">
             {% elif pos.asset_type in ["ETH", "Ethereum"] %}
-              <img src="/static/images/eth_logo.png" alt="ETH" style="width:20px; height:20px; margin-right:5px;">
+              <img src="/static/images/eth_logo.png" alt="ETH"
+                   style="width:20px; height:20px; margin-right:5px;">
             {% elif pos.asset_type in ["SOL", "Solana"] %}
-              <img src="/static/images/sol_logo.png" alt="SOL" style="width:20px; height:20px; margin-right:5px;">
+              <img src="/static/images/sol_logo.png" alt="SOL"
+                   style="width:20px; height:20px; margin-right:5px;">
             {% endif %}
             {{ pos.asset_type }}
           </td>
-
           <td><b>{{ pos.position_type }}</b></td>
-
-          <!-- Collateral -->
           <td class="{{ pos.collateral_status }}">
             <span id="span-collateral-{{ pos.id }}">{{ "{:,}".format(pos.collateral) }}</span>
-            <input
-              type="number"
-              step="0.01"
-              class="form-control d-none"
-              id="edit-collateral-{{ pos.id }}"
-              value="{{ pos.collateral }}"
-            />
+            <input type="number" step="0.01" class="form-control d-none"
+                   id="edit-collateral-{{ pos.id }}" value="{{ pos.collateral }}">
           </td>
-
-          <!-- Value -->
           <td class="{{ pos.value_status }}">
             {{ "{:,}".format(pos.value) }}
           </td>
-
-          <!-- Size -->
           <td class="{{ pos.size_status }}">
             <span id="span-size-{{ pos.id }}">{{ "{:,}".format(pos.size) }}</span>
-            <input
-              type="number"
-              step="0.01"
-              class="form-control d-none"
-              id="edit-size-{{ pos.id }}"
-              value="{{ pos.size }}"
-            />
+            <input type="number" step="0.01" class="form-control d-none"
+                   id="edit-size-{{ pos.id }}" value="{{ pos.size }}">
           </td>
-
-          <!-- Leverage -->
-          <td>
-            {{ pos.leverage|float|round(2) }}
-          </td>
-
-          <!-- Travel % -->
+          <td>{{ pos.leverage|float|round(2) }}</td>
           <td class="{{ pos.travel_percent_status }}">
             {% if pos.current_travel_percent is not none %}
               {{ pos.current_travel_percent|round(2) }}%
-            {% else %}
-              N/A
-            {% endif %}
+            {% else %} N/A {% endif %}
           </td>
-
-          <!-- Heat Index -->
           <td class="{{ pos.heat_index_status }}">
             {% if pos.heat_index is not none %}
               {{ "{:,}".format(pos.heat_index) }}
-            {% else %}
-              N/A
-            {% endif %}
+            {% else %} N/A {% endif %}
           </td>
-
-          <!-- Liquidation Price -->
           <td>
             {% if pos.liquidation_price is not none %}
               {{ pos.liquidation_price|float|round(2) }}
-            {% else %}
-              N/A
-            {% endif %}
+            {% else %} N/A {% endif %}
           </td>
-
-          <!-- Actions (Edit, Delete) -->
           <td>
-            <!-- Edit Button -->
-            <button
-              type="button"
-              class="btn btn-sm btn-primary"
-              onclick="enableEdit('{{ pos.id }}')"
-              id="edit-btn-{{ pos.id }}"
-            >
+            <!-- Edit Btn -->
+            <button type="button" class="btn btn-sm btn-primary"
+                    onclick="enableEdit('{{ pos.id }}')" id="edit-btn-{{ pos.id }}">
               Edit
             </button>
-
-            <!-- Hidden form to submit Collateral/Size changes -->
-            <form
-              method="POST"
-              action="{{ url_for('edit_position', position_id=pos.id) }}"
-              id="edit-form-{{ pos.id }}"
-              class="d-none"
-              style="display:inline;"
-            >
-              <input
-                type="hidden"
-                name="collateral"
-                id="hidden-collateral-{{ pos.id }}"
-                value="{{ pos.collateral }}"
-              />
-              <input
-                type="hidden"
-                name="size"
-                id="hidden-size-{{ pos.id }}"
-                value="{{ pos.size }}"
-              />
+            <!-- Hidden form -->
+            <form method="POST" action="{{ url_for('edit_position', position_id=pos.id) }}"
+                  id="edit-form-{{ pos.id }}" class="d-none" style="display:inline;">
+              <input type="hidden" name="collateral" id="hidden-collateral-{{ pos.id }}" value="{{ pos.collateral }}">
+              <input type="hidden" name="size" id="hidden-size-{{ pos.id }}" value="{{ pos.size }}">
               <button type="submit" class="btn btn-sm btn-success">Save</button>
-              <button
-                type="button"
-                class="btn btn-sm btn-secondary"
-                onclick="cancelEdit('{{ pos.id }}')"
-              >
+              <button type="button" class="btn btn-sm btn-secondary"
+                      onclick="cancelEdit('{{ pos.id }}')">
                 Cancel
               </button>
             </form>
-
-            <!-- Delete Button -->
-            <form
-              method="POST"
-              action="/delete-position/{{ pos.id }}"
-              style="display: inline;"
-            >
-              <button type="submit" class="btn btn-sm btn-danger">
-                Delete
-              </button>
+            <!-- Delete Btn -->
+            <form method="POST" action="/delete-position/{{ pos.id }}" style="display:inline;">
+              <button type="submit" class="btn btn-sm btn-danger">Delete</button>
             </form>
           </td>
         </tr>
@@ -211,15 +131,16 @@
   </div>
 </div>
 
-<!-- Card for Add New Position / Import JSON -->
+<!-- Add/Import Card -->
 <div class="card mt-3">
-  <div class="card-header fw-bold">Add New Position / Import JSON</div>
+  <div class="card-header fw-bold">Add New Position / Import JSON or TXT</div>
   <div class="card-body">
     <div class="row g-3">
-      <!-- Left Column: Add New Position -->
+      <!-- Left: Add New Position -->
       <div class="col-md-6">
         <form method="POST" action="{{ url_for('positions') }}">
           <div class="row g-3">
+            <!-- Asset -->
             <div class="col-md-6">
               <label for="asset_type" class="form-label fw-bold">Asset <span class="ms-1">💰</span></label>
               <select class="form-select" id="asset_type" name="asset_type" required>
@@ -228,6 +149,7 @@
                 <option value="SOL">SOL</option>
               </select>
             </div>
+            <!-- Position Type -->
             <div class="col-md-6">
               <label for="position_type" class="form-label fw-bold">Position Type <span class="ms-1">🔧</span></label>
               <select class="form-select" id="position_type" name="position_type" required>
@@ -235,49 +157,25 @@
                 <option value="Short">Short</option>
               </select>
             </div>
+            <!-- Collateral -->
             <div class="col-md-6">
               <label for="collateral" class="form-label fw-bold">Collateral <span class="ms-1">🔒</span></label>
-              <input
-                type="number"
-                step="0.01"
-                class="form-control"
-                id="collateral"
-                name="collateral"
-                required
-              />
+              <input type="number" step="0.01" class="form-control" id="collateral" name="collateral" required>
             </div>
+            <!-- Size -->
             <div class="col-md-6">
               <label for="size" class="form-label fw-bold">Size <span class="ms-1">📏</span></label>
-              <input
-                type="number"
-                step="0.01"
-                class="form-control"
-                id="size"
-                name="size"
-                required
-              />
+              <input type="number" step="0.01" class="form-control" id="size" name="size" required>
             </div>
+            <!-- Entry Price -->
             <div class="col-md-6">
               <label for="entry_price" class="form-label fw-bold">Entry Price <span class="ms-1">💲</span></label>
-              <input
-                type="number"
-                step="0.01"
-                class="form-control"
-                id="entry_price"
-                name="entry_price"
-                required
-              />
+              <input type="number" step="0.01" class="form-control" id="entry_price" name="entry_price" required>
             </div>
+            <!-- Liquidation Price -->
             <div class="col-md-6">
               <label for="liquidation_price" class="form-label fw-bold">Liquidation Price <span class="ms-1">⚠️</span></label>
-              <input
-                type="number"
-                step="0.01"
-                class="form-control"
-                id="liquidation_price"
-                name="liquidation_price"
-                required
-              />
+              <input type="number" step="0.01" class="form-control" id="liquidation_price" name="liquidation_price" required>
             </div>
             <div class="col-md-12 text-end">
               <button type="submit" class="btn btn-primary">Add Position</button>
@@ -286,33 +184,26 @@
         </form>
       </div>
 
-      <!-- Right Column: Upload JSON & Delete All -->
+      <!-- Right: Upload & Delete All -->
       <div class="col-md-6">
-        <label for="file-input" class="form-label fw-bold">Import from JSON <span class="ms-1">📄</span></label>
-        <div
-          id="drop-area"
-          class="border border-primary rounded p-3 text-center"
-          style="min-height:120px;"
-        >
-          <p class="mb-2">Drag & drop a JSON file here or click to select</p>
-          <input
-            type="file"
-            id="file-input"
-            style="display:none;"
-            accept=".json"
-          />
-          <button
-            type="button"
-            class="btn btn-secondary"
-            onclick="document.getElementById('file-input').click();"
-          >
+        <label for="file-input" class="form-label fw-bold">
+          Import from JSON or TXT <span class="ms-1">📄</span>
+        </label>
+        <div id="drop-area" class="border border-primary rounded p-3 text-center" style="min-height:120px;">
+          <p class="mb-2">Drag &amp; drop a JSON/TXT file here or click to select</p>
+          <!-- Accept .json or .txt -->
+          <input type="file" id="file-input" style="display:none;" accept=".json,.txt">
+          <button type="button" class="btn btn-secondary" onclick="document.getElementById('file-input').click();">
             Browse
           </button>
         </div>
+
         <div class="d-flex justify-content-between align-items-center mt-2">
+          <!-- Upload button -> /upload-positions -->
           <button type="button" id="upload-btn" class="btn btn-success" disabled>
             Upload Positions
           </button>
+          <!-- Delete All -> /delete-all-positions -->
           <form method="POST" action="/delete-all-positions" style="display:inline;">
             <button type="submit" class="btn btn-danger">Delete All</button>
           </form>
@@ -322,39 +213,33 @@
   </div>
 </div>
 
-<!-- JavaScript for inline editing, file upload, etc. -->
 <script>
+// Inline Edit
 function enableEdit(posId) {
   document.getElementById(`edit-btn-${posId}`).classList.add("d-none");
   document.getElementById(`edit-form-${posId}`).classList.remove("d-none");
-
   document.getElementById(`span-collateral-${posId}`).classList.add("d-none");
   document.getElementById(`edit-collateral-${posId}`).classList.remove("d-none");
-
   document.getElementById(`span-size-${posId}`).classList.add("d-none");
   document.getElementById(`edit-size-${posId}`).classList.remove("d-none");
 }
-
 function cancelEdit(posId) {
   document.getElementById(`edit-btn-${posId}`).classList.remove("d-none");
   document.getElementById(`edit-form-${posId}`).classList.add("d-none");
-
   document.getElementById(`span-collateral-${posId}`).classList.remove("d-none");
   document.getElementById(`edit-collateral-${posId}`).classList.add("d-none");
-
   document.getElementById(`span-size-${posId}`).classList.remove("d-none");
   document.getElementById(`edit-size-${posId}`).classList.add("d-none");
 }
-
-// Hook input changes to hidden form fields
-document.querySelectorAll('input[id^="edit-collateral-"]').forEach((inputEl) => {
-  inputEl.addEventListener("input", function() {
+// Sync form fields
+document.querySelectorAll('input[id^="edit-collateral-"]').forEach((el) => {
+  el.addEventListener("input", function() {
     const posId = this.id.split("-")[2];
     document.getElementById(`hidden-collateral-${posId}`).value = this.value;
   });
 });
-document.querySelectorAll('input[id^="edit-size-"]').forEach((inputEl) => {
-  inputEl.addEventListener("input", function() {
+document.querySelectorAll('input[id^="edit-size-"]').forEach((el) => {
+  el.addEventListener("input", function() {
     const posId = this.id.split("-")[2];
     document.getElementById(`hidden-size-${posId}`).value = this.value;
   });
@@ -377,10 +262,14 @@ dropArea.addEventListener('drop', (e) => {
   e.preventDefault();
   dropArea.classList.remove('bg-light');
   selectedFile = e.dataTransfer.files[0];
-  if (selectedFile && selectedFile.type === 'application/json') {
+  // Just check the extension (since type detection is unreliable)
+  if (selectedFile && (
+    selectedFile.name.toLowerCase().endsWith('.json') ||
+    selectedFile.name.toLowerCase().endsWith('.txt')
+  )) {
     uploadBtn.disabled = false;
   } else {
-    alert('Please drop a valid JSON file.');
+    alert('Please drop a valid JSON or TXT file.');
     selectedFile = null;
     uploadBtn.disabled = true;
   }
@@ -388,10 +277,13 @@ dropArea.addEventListener('drop', (e) => {
 dropArea.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', () => {
   selectedFile = fileInput.files[0];
-  if (selectedFile && selectedFile.type === 'application/json') {
+  if (selectedFile && (
+    selectedFile.name.toLowerCase().endsWith('.json') ||
+    selectedFile.name.toLowerCase().endsWith('.txt')
+  )) {
     uploadBtn.disabled = false;
   } else {
-    alert('Please select a valid JSON file.');
+    alert('Please select a valid JSON or TXT file.');
     selectedFile = null;
     uploadBtn.disabled = true;
   }
@@ -406,18 +298,26 @@ uploadBtn.addEventListener('click', () => {
     method: 'POST',
     body: formData
   })
-    .then((response) => {
-      if (response.ok) {
-        alert('Positions imported successfully!');
-        location.reload();
-      } else {
-        alert('Failed to import positions.');
+  .then(async (response) => {
+    if (!response.ok) {
+      // Attempt to parse any JSON error
+      let msg;
+      try {
+        let data = await response.json();
+        msg = data.error || JSON.stringify(data);
+      } catch(e) {
+        msg = "unknown error";
       }
-    })
-    .catch((err) => {
-      console.error(err);
-      alert('An error occurred while uploading.');
-    });
+      alert(`Failed to import positions.\n${msg}`);
+    } else {
+      alert('Positions imported successfully!');
+      location.reload();
+    }
+  })
+  .catch((err) => {
+    console.error("Upload fetch error:", err);
+    alert('An error occurred while uploading.');
+  });
 });
 </script>
 {% endblock content %}
