@@ -1,6 +1,7 @@
 import os
 import logging
 import json
+import sqlite3
 from datetime import datetime
 
 from flask import Flask, request, jsonify, render_template, redirect, url_for
@@ -23,6 +24,8 @@ logger.setLevel(logging.DEBUG)
 
 # Path to your database
 db_path = os.path.abspath("data/mother_brain.db")
+DB_PATH = "data/mother_brain.db"
+
 print(f"Using DB at: {db_path}")
 data_locker = DataLocker(db_path=db_path)
 calc_services = CalcServices()
@@ -343,6 +346,100 @@ def alert_options():
         return redirect(url_for("alert_options"))
 
     return render_template("alert_options.html", config=config_data)
+
+
+@app.route("/system-options", methods=["GET", "POST"])
+def system_options():
+    """
+    Displays a form for editing system options (SystemConfig, PriceConfig, etc.)
+    Also handles importing new config from JSON file or saving manual changes.
+    """
+    # 1) Load current config
+    config = AppConfig.load("sonic_config.json")
+
+    if request.method == "POST":
+        # A) If a file is uploaded -> import config
+        if "import_file" in request.files:
+            file = request.files["import_file"]
+            if file and file.filename:
+                if file.filename.lower().endswith(".json"):
+                    try:
+                        import_data = json.load(file)
+                        new_config = AppConfig(**import_data)
+                        new_config.save("sonic_config.json")
+                        flash("Config imported successfully!", "success")
+                        return redirect(url_for("system_options"))
+                    except Exception as e:
+                        logger.error(f"Error importing config: {e}", exc_info=True)
+                        flash(f"Error importing config: {e}", "danger")
+                        return redirect(url_for("system_options"))
+                else:
+                    flash("Please upload a valid JSON file.", "warning")
+                    return redirect(url_for("system_options"))
+
+        # B) Otherwise, update from form fields
+        # Example: system_config booleans (checkboxes)
+        config.system_config.logging_enabled = (request.form.get("logging_enabled") == "on")
+        config.system_config.price_monitor_enabled = (request.form.get("price_monitor_enabled") == "on")
+        config.system_config.alert_monitor_enabled = (request.form.get("alert_monitor_enabled") == "on")
+
+        # Example: system_config strings
+        config.system_config.log_level = request.form.get("log_level", "DEBUG")
+        config.system_config.db_path = request.form.get("db_path", "")
+        config.system_config.log_file = request.form.get("log_file", "")
+        config.system_config.last_price_update_time = request.form.get("last_price_update_time", None)
+        try:
+            loop_time_str = request.form.get("sonic_monitor_loop_time", "300")
+            config.system_config.sonic_monitor_loop_time = int(loop_time_str)
+        except ValueError:
+            flash("Invalid loop time. Using default of 300.", "warning")
+            config.system_config.sonic_monitor_loop_time = 300
+
+        # Example: PriceConfig
+        assets_str = request.form.get("assets", "BTC,ETH")
+        config.price_config.assets = [x.strip() for x in assets_str.split(",")]
+        config.price_config.currency = request.form.get("currency", "USD")
+        try:
+            config.price_config.fetch_timeout = int(request.form.get("fetch_timeout", "10"))
+        except ValueError:
+            config.price_config.fetch_timeout = 10
+
+        # Example: APIConfig toggles
+        config.api_config.coingecko_api_enabled = request.form.get("coingecko_api_enabled", "ENABLE")
+        config.api_config.binance_api_enabled = request.form.get("binance_api_enabled", "ENABLE")
+        config.api_config.coinmarketcap_api_key = request.form.get("coinmarketcap_api_key", "")
+
+        # Example: A few Alert Range fields (like heat_index.low/med/high)
+        try:
+            config.alert_ranges.heat_index_ranges.low = float(request.form.get("heat_index_low", "0.0"))
+            config.alert_ranges.heat_index_ranges.medium = float(request.form.get("heat_index_medium", "200.0"))
+            hi_high = request.form.get("heat_index_high", "")
+            config.alert_ranges.heat_index_ranges.high = float(hi_high) if hi_high else None
+        except ValueError:
+            # If user input is invalid, set defaults or handle gracefully
+            pass
+
+        # 3) Save changes back to disk
+        config.save("sonic_config.json")
+
+        flash("System options saved!", "success")
+        return redirect(url_for("system_options"))
+
+    # If GET => just show current config
+    return render_template("system_options.html", config=config)
+
+# Example route if you want a direct export link
+@app.route("/export-config")
+def export_config():
+    from flask import send_file
+    config_path = os.path.join(os.getcwd(), "sonic_config.json")
+    return send_file(
+        config_path,
+        as_attachment=True,
+        download_name="sonic_config.json",
+        mimetype="application/json"
+    )
+
 @app.route("/heat", methods=["GET"])
 def heat():
     logger.debug("Entered /heat route.")
@@ -447,7 +544,6 @@ def build_heat_data(positions):
 
     return structure
 
-
 @app.route("/config", methods=["GET", "POST"])
 def system_config():
     config_data = AppConfig.load("sonic_config.json")
@@ -458,6 +554,47 @@ def system_config():
             f.write(config_data.json(indent=2))
         return redirect(url_for("system_config"))
     return render_template("system_config.html", config=config_data)
+
+import os
+from flask import send_file
+
+
+@app.route("/database-viewer")
+def database_viewer():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    # Get all non-system table names
+    cur.execute("""
+        SELECT name 
+        FROM sqlite_master 
+        WHERE type='table' 
+          AND name NOT LIKE 'sqlite_%' 
+        ORDER BY name
+    """)
+    tables = [row["name"] for row in cur.fetchall()]
+
+    db_data = {}
+    for table in tables:
+        # Get columns
+        cur.execute(f"PRAGMA table_info({table})")
+        columns = [col["name"] for col in cur.fetchall()]
+
+        # Get rows
+        cur.execute(f"SELECT * FROM {table}")
+        rows_raw = cur.fetchall()
+        rows = [dict(row) for row in rows_raw]
+
+        db_data[table] = {
+            "columns": columns,
+            "rows": rows
+        }
+
+    conn.close()
+
+    # Pass to template
+    return render_template("database_viewer.html", db_data=db_data)
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
