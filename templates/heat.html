@@ -1,5 +1,9 @@
 {% extends "sonic_admin.html" %}
 {% block content %}
+
+### ADDED ###
+{% set heat_data = heat_data|default({}) %}
+
 <h2 class="text-dark mb-4">Heat Report</h2>
 
 <style>
@@ -228,7 +232,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
 <script>
 (function() {
-  // Grab short/long totals safely
+  // short/long totals
   const shortSize = {{ heat_data.get("totals", {}).get("short", {}).get("size", 0)|float|round(2) }};
   const longSize  = {{ heat_data.get("totals", {}).get("long", {}).get("size", 0)|float|round(2) }};
 
@@ -267,7 +271,7 @@
 
   // 2) Leverage
   const shortLev = {{ heat_data.get("totals", {}).get("short", {}).get("leverage", 0)|float|round(2) }};
-  const longLev  = {{ heat_data.get("totals", {}).get("long", {}).get("leverage", 0)|float|round(2) }};
+  const longLev  = {{ heat_data.get("totals", {}).get("long",  {}).get("leverage", 0)|float|round(2) }};
   let overallLev = (shortLev>0 && longLev>0) ? (shortLev+longLev)/2 : (shortLev+longLev);
   if (overallLev<0) overallLev=0;
   if (overallLev>30) overallLev=30;
@@ -309,11 +313,11 @@
 
   // 3) Asset Distribution: sum short+long sizes for BTC, ETH, SOL
   const btcShort = {{ heat_data.get("BTC", {}).get("short", {}).get("size",0)|float|round(2) }};
-  const btcLong  = {{ heat_data.get("BTC", {}).get("long", {}).get("size",0)|float|round(2) }};
+  const btcLong  = {{ heat_data.get("BTC", {}).get("long",  {}).get("size",0)|float|round(2) }};
   const ethShort = {{ heat_data.get("ETH", {}).get("short", {}).get("size",0)|float|round(2) }};
-  const ethLong  = {{ heat_data.get("ETH", {}).get("long", {}).get("size",0)|float|round(2) }};
+  const ethLong  = {{ heat_data.get("ETH", {}).get("long",  {}).get("size",0)|float|round(2) }};
   const solShort = {{ heat_data.get("SOL", {}).get("short", {}).get("size",0)|float|round(2) }};
-  const solLong  = {{ heat_data.get("SOL", {}).get("long", {}).get("size",0)|float|round(2) }};
+  const solLong  = {{ heat_data.get("SOL", {}).get("long",  {}).get("size",0)|float|round(2) }};
 
   const btcTotal = btcShort + btcLong;
   const ethTotal = ethShort + ethLong;

@@ -200,6 +200,24 @@ class DataLocker:
             self.logger.error(f"Error reading positions: {e}", exc_info=True)
             return []
 
+    def get_latest_prices(self) -> Dict[str, float]:
+        """
+        Return a dict of {asset_type: current_price} for all assets in the 'prices' table.
+        """
+        results = {}
+        try:
+            self.logger.debug("Reading latest prices from DB.")
+            self.cursor.execute("SELECT asset_type, current_price FROM prices")
+            rows = self.cursor.fetchall()
+            for row in rows:
+                asset = row["asset_type"]
+                price = row["current_price"]
+                results[asset] = price
+        except Exception as e:
+            self.logger.error(f"Error reading latest prices: {e}", exc_info=True)
+
+        return results
+
     def import_portfolio_data(self, portfolio):
         if "positions" not in portfolio:
             self.logger.error("No 'positions' key in imported portfolio data.")

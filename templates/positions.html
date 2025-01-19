@@ -2,7 +2,17 @@
 {% block content %}
 
 <style>
-  body { background-color: #a9c6e8; }
+  body {
+    background-color: #a9c6e8; 
+  }
+  /* Light green header (same as table header: #e5ffe5) */
+  .header-light-green {
+    background-color: #e5ffe5 !important;
+  }
+  /* Light grey body (#eeeeee) */
+  .body-light-grey {
+    background-color: #eeeeee !important;
+  }
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -14,16 +24,24 @@
   <div class="card-body p-0">
     <style>
       thead th {
-        background-color: #e5ffe5 !important; border: 2px solid #ccc;
+        background-color: #e5ffe5 !important; 
+        border: 2px solid #ccc;
       }
       tfoot td {
-        background-color: #e5ffe5 !important; border: 2px solid #ccc; font-weight:bold;
+        background-color: #e5ffe5 !important; 
+        border: 2px solid #ccc; 
+        font-weight: bold;
       }
       tbody td {
-        border:1px solid #ddd; background-color:#fff;
+        border: 1px solid #ddd; 
+        background-color: #fff;
       }
-      thead th, tbody td, tfoot td {
-        text-align:center; vertical-align:middle; padding:8px;
+      thead th, 
+      tbody td, 
+      tfoot td {
+        text-align: center; 
+        vertical-align: middle; 
+        padding: 8px;
       }
     </style>
 
@@ -76,29 +94,43 @@
           <td class="{{ pos.travel_percent_status }}">
             {% if pos.current_travel_percent is not none %}
               {{ pos.current_travel_percent|round(2) }}%
-            {% else %} N/A {% endif %}
+            {% else %} 
+              N/A 
+            {% endif %}
           </td>
           <td class="{{ pos.heat_index_status }}">
             {% if pos.heat_index is not none %}
               {{ "{:,}".format(pos.heat_index) }}
-            {% else %} N/A {% endif %}
+            {% else %} 
+              N/A 
+            {% endif %}
           </td>
           <td>
             {% if pos.liquidation_price is not none %}
               {{ pos.liquidation_price|float|round(2) }}
-            {% else %} N/A {% endif %}
+            {% else %} 
+              N/A 
+            {% endif %}
           </td>
           <td>
             <!-- Edit Btn -->
             <button type="button" class="btn btn-sm btn-primary"
-                    onclick="enableEdit('{{ pos.id }}')" id="edit-btn-{{ pos.id }}">
+                    onclick="enableEdit('{{ pos.id }}')" 
+                    id="edit-btn-{{ pos.id }}">
               Edit
             </button>
             <!-- Hidden form -->
-            <form method="POST" action="{{ url_for('edit_position', position_id=pos.id) }}"
-                  id="edit-form-{{ pos.id }}" class="d-none" style="display:inline;">
-              <input type="hidden" name="collateral" id="hidden-collateral-{{ pos.id }}" value="{{ pos.collateral }}">
-              <input type="hidden" name="size" id="hidden-size-{{ pos.id }}" value="{{ pos.size }}">
+            <form method="POST" 
+                  action="{{ url_for('edit_position', position_id=pos.id) }}"
+                  id="edit-form-{{ pos.id }}" 
+                  class="d-none" 
+                  style="display:inline;">
+              <input type="hidden" name="collateral" 
+                     id="hidden-collateral-{{ pos.id }}" 
+                     value="{{ pos.collateral }}">
+              <input type="hidden" name="size" 
+                     id="hidden-size-{{ pos.id }}" 
+                     value="{{ pos.size }}">
               <button type="submit" class="btn btn-sm btn-success">Save</button>
               <button type="button" class="btn btn-sm btn-secondary"
                       onclick="cancelEdit('{{ pos.id }}')">
@@ -106,7 +138,9 @@
               </button>
             </form>
             <!-- Delete Btn -->
-            <form method="POST" action="/delete-position/{{ pos.id }}" style="display:inline;">
+            <form method="POST" 
+                  action="/delete-position/{{ pos.id }}" 
+                  style="display:inline;">
               <button type="submit" class="btn btn-sm btn-danger">Delete</button>
             </form>
           </td>
@@ -133,8 +167,12 @@
 
 <!-- Add/Import Card -->
 <div class="card mt-3">
-  <div class="card-header fw-bold">Add New Position / Import JSON or TXT</div>
-  <div class="card-body">
+  <!-- Light green header -->
+  <div class="card-header fw-bold header-light-green">
+    Add New Position / Import JSON or TXT
+  </div>
+  <!-- Light grey body -->
+  <div class="card-body body-light-grey">
     <div class="row g-3">
       <!-- Left: Add New Position -->
       <div class="col-md-6">
@@ -142,7 +180,9 @@
           <div class="row g-3">
             <!-- Asset -->
             <div class="col-md-6">
-              <label for="asset_type" class="form-label fw-bold">Asset <span class="ms-1">💰</span></label>
+              <label for="asset_type" class="form-label fw-bold">
+                Asset <span class="ms-1">💰</span>
+              </label>
               <select class="form-select" id="asset_type" name="asset_type" required>
                 <option value="BTC">BTC</option>
                 <option value="ETH">ETH</option>
@@ -151,7 +191,9 @@
             </div>
             <!-- Position Type -->
             <div class="col-md-6">
-              <label for="position_type" class="form-label fw-bold">Position Type <span class="ms-1">🔧</span></label>
+              <label for="position_type" class="form-label fw-bold">
+                Position Type <span class="ms-1">🔧</span>
+              </label>
               <select class="form-select" id="position_type" name="position_type" required>
                 <option value="Long">Long</option>
                 <option value="Short">Short</option>
@@ -159,26 +201,40 @@
             </div>
             <!-- Collateral -->
             <div class="col-md-6">
-              <label for="collateral" class="form-label fw-bold">Collateral <span class="ms-1">🔒</span></label>
-              <input type="number" step="0.01" class="form-control" id="collateral" name="collateral" required>
+              <label for="collateral" class="form-label fw-bold">
+                Collateral <span class="ms-1">🔒</span>
+              </label>
+              <input type="number" step="0.01" class="form-control" 
+                     id="collateral" name="collateral" required>
             </div>
             <!-- Size -->
             <div class="col-md-6">
-              <label for="size" class="form-label fw-bold">Size <span class="ms-1">📏</span></label>
-              <input type="number" step="0.01" class="form-control" id="size" name="size" required>
+              <label for="size" class="form-label fw-bold">
+                Size <span class="ms-1">📏</span>
+              </label>
+              <input type="number" step="0.01" class="form-control" 
+                     id="size" name="size" required>
             </div>
             <!-- Entry Price -->
             <div class="col-md-6">
-              <label for="entry_price" class="form-label fw-bold">Entry Price <span class="ms-1">💲</span></label>
-              <input type="number" step="0.01" class="form-control" id="entry_price" name="entry_price" required>
+              <label for="entry_price" class="form-label fw-bold">
+                Entry Price <span class="ms-1">💲</span>
+              </label>
+              <input type="number" step="0.01" class="form-control" 
+                     id="entry_price" name="entry_price" required>
             </div>
             <!-- Liquidation Price -->
             <div class="col-md-6">
-              <label for="liquidation_price" class="form-label fw-bold">Liquidation Price <span class="ms-1">⚠️</span></label>
-              <input type="number" step="0.01" class="form-control" id="liquidation_price" name="liquidation_price" required>
+              <label for="liquidation_price" class="form-label fw-bold">
+                Liquidation Price <span class="ms-1">⚠️</span>
+              </label>
+              <input type="number" step="0.01" class="form-control" 
+                     id="liquidation_price" name="liquidation_price" required>
             </div>
             <div class="col-md-12 text-end">
-              <button type="submit" class="btn btn-primary">Add Position</button>
+              <button type="submit" class="btn btn-primary">
+                Add Position
+              </button>
             </div>
           </div>
         </form>
@@ -189,11 +245,18 @@
         <label for="file-input" class="form-label fw-bold">
           Import from JSON or TXT <span class="ms-1">📄</span>
         </label>
-        <div id="drop-area" class="border border-primary rounded p-3 text-center" style="min-height:120px;">
-          <p class="mb-2">Drag &amp; drop a JSON/TXT file here or click to select</p>
+        <div id="drop-area" 
+             class="border border-primary rounded p-3 text-center" 
+             style="min-height:120px;">
+          <p class="mb-2">
+            Drag &amp; drop a JSON/TXT file here or click to select
+          </p>
           <!-- Accept .json or .txt -->
-          <input type="file" id="file-input" style="display:none;" accept=".json,.txt">
-          <button type="button" class="btn btn-secondary" onclick="document.getElementById('file-input').click();">
+          <input type="file" id="file-input" 
+                 style="display:none;" 
+                 accept=".json,.txt">
+          <button type="button" class="btn btn-secondary" 
+                  onclick="document.getElementById('file-input').click();">
             Browse
           </button>
         </div>
@@ -215,9 +278,15 @@
 
 <!-- New Card: Check Alerts -->
 <div class="card mt-3">
-  <div class="card-header fw-bold">Check Alerts Right Now</div>
-  <div class="card-body">
-    <button type="button" class="btn btn-info" id="checkAlertsBtn">Check Alerts</button>
+  <!-- Light green header -->
+  <div class="card-header fw-bold header-light-green">
+    Check Alerts Right Now
+  </div>
+  <!-- Light grey body -->
+  <div class="card-body body-light-grey">
+    <button type="button" class="btn btn-info" id="checkAlertsBtn">
+      Check Alerts
+    </button>
   </div>
 </div>
 
@@ -239,7 +308,8 @@ function cancelEdit(posId) {
   document.getElementById(`span-size-${posId}`).classList.remove("d-none");
   document.getElementById(`edit-size-${posId}`).classList.add("d-none");
 }
-// Sync form fields
+
+// Sync form fields for editing
 document.querySelectorAll('input[id^="edit-collateral-"]').forEach((el) => {
   el.addEventListener("input", function() {
     const posId = this.id.split("-")[2];
@@ -270,7 +340,7 @@ dropArea.addEventListener('drop', (e) => {
   e.preventDefault();
   dropArea.classList.remove('bg-light');
   selectedFile = e.dataTransfer.files[0];
-  // Just check the extension (since type detection is unreliable)
+  // Check extension (type detection can be unreliable)
   if (selectedFile && (
     selectedFile.name.toLowerCase().endsWith('.json') ||
     selectedFile.name.toLowerCase().endsWith('.txt')
@@ -306,26 +376,26 @@ uploadBtn.addEventListener('click', () => {
     method: 'POST',
     body: formData
   })
-  .then(async (response) => {
-    if (!response.ok) {
-      // Attempt to parse any JSON error
-      let msg;
-      try {
-        let data = await response.json();
-        msg = data.error || JSON.stringify(data);
-      } catch(e) {
-        msg = "unknown error";
+    .then(async (response) => {
+      if (!response.ok) {
+        // Attempt to parse any JSON error
+        let msg;
+        try {
+          let data = await response.json();
+          msg = data.error || JSON.stringify(data);
+        } catch(e) {
+          msg = "unknown error";
+        }
+        alert(`Failed to import positions.\n${msg}`);
+      } else {
+        alert('Positions imported successfully!');
+        location.reload();
       }
-      alert(`Failed to import positions.\n${msg}`);
-    } else {
-      alert('Positions imported successfully!');
-      location.reload();
-    }
-  })
-  .catch((err) => {
-    console.error("Upload fetch error:", err);
-    alert('An error occurred while uploading.');
-  });
+    })
+    .catch((err) => {
+      console.error("Upload fetch error:", err);
+      alert('An error occurred while uploading.');
+    });
 });
 
 // Check Alerts (New)

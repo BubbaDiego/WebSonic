@@ -1,24 +1,35 @@
 {% extends "sonic_admin.html" %}
 {% block content %}
-<style>
-  /* Match the Positions color scheme */
 
-  /* Info boxes: light-grey card background, green header */
-  .price-card {
-    background-color: #F0F0F0 !important; /* same grey as sidebars/positions */
+<style>
+  /* Same color scheme for top boxes and card backgrounds */
+  .price-box.card {
+    background-color: #F0F0F0 !important;
     border: 2px solid #ccc;
     border-radius: 8px;
   }
-  .price-card .card-header {
-    background-color: #e5ffe5 !important; /* same green as table heads in positions */
+  .price-box .card-header {
+    background-color: #e5ffe5 !important;
     font-weight: bold;
   }
-  /* Make the price nice and big */
-  .price-card .display-4 {
-    font-size: 2.5rem; /* adjust as you like */
+  .price-box .display-4 {
+    font-size: 2.5rem; /* Big price font */
   }
 
-  /* Add Price Card: also a light-grey background & green header */
+  /* Recent Prices table: striped full-width */
+  .recent-prices-table.table-striped tbody tr:nth-of-type(odd) {
+    background-color: rgba(0, 0, 0, 0.05);
+  }
+  .recent-prices-table thead tr.title-row,
+  .recent-prices-table thead tr.column-header-row {
+    background-color: #e5ffe5 !important;
+  }
+  .recent-prices-table thead tr.title-row th,
+  .recent-prices-table thead tr.column-header-row th {
+    font-weight: bold;
+  }
+
+  /* Add Price Card styling */
   .card.add-price {
     background-color: #F0F0F0 !important;
   }
@@ -28,37 +39,37 @@
   }
 </style>
 
-<h2 class="text-dark mb-4">Prices</h2>
-
-<!-- Single button to update all prices -->
-<div class="text-end mb-3">
-  <!-- Adjust the route/method as needed -->
-  <form method="POST" action="{{ url_for('prices') }}">
+<!-- ====== SECTION 1: Title + Update Button + Boxes ====== -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="text-dark mb-0">Prices</h2>
+  <!-- POST to /prices (adapt if your route is different) -->
+  <form method="POST" action="{{ url_for('update_prices') }}">
     <button type="submit" class="btn btn-success">Update Prices</button>
   </form>
 </div>
 
-<!-- Row of "info boxes" for each price -->
-<div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
-  {% for p in prices %}
+<!-- Row of up to 3 “info boxes” from your “prices” list -->
+<div class="row row-cols-1 row-cols-md-3 g-4 mb-4">
+  {% for p in prices[:3] %}
   <div class="col">
-    <div class="card price-card h-100">
+    <div class="card price-box h-100">
       <div class="card-header d-flex align-items-center justify-content-center">
         {% if p.asset_type in ["BTC", "Bitcoin"] %}
-          <img src="/static/images/btc_logo.png" alt="BTC" style="width: 30px; height: 30px; margin-right: 10px;">
+          <img src="/static/images/btc_logo.png" alt="BTC" 
+               style="width: 30px; height: 30px; margin-right: 10px;">
         {% elif p.asset_type in ["ETH", "Ethereum"] %}
-          <img src="/static/images/eth_logo.png" alt="ETH" style="width: 30px; height: 30px; margin-right: 10px;">
+          <img src="/static/images/eth_logo.png" alt="ETH" 
+               style="width: 30px; height: 30px; margin-right: 10px;">
         {% elif p.asset_type in ["SOL", "Solana"] %}
-          <img src="/static/images/sol_logo.png" alt="SOL" style="width: 30px; height: 30px; margin-right: 10px;">
+          <img src="/static/images/sol_logo.png" alt="SOL" 
+               style="width: 30px; height: 30px; margin-right: 10px;">
         {% endif %}
         <span>{{ p.asset_type }}</span>
       </div>
       <div class="card-body text-center">
-        <!-- Price in big font -->
         <div class="display-4 mb-2">
           {{ p.current_price }}
         </div>
-        <!-- Last updated timestamp -->
         <small class="text-muted">
           Last Updated: {{ p.last_update_time_pst or "N/A" }}
         </small>
@@ -68,8 +79,68 @@
   {% endfor %}
 </div>
 
-<!-- Add New Price Form (same style as "Positions" page) -->
-<div class="card add-price mt-4">
+<!-- ====== SECTION 2: “Recent Prices” Table (historical log) ====== -->
+
+{% if recent_prices is not defined %}
+  {% set recent_prices = [] %}
+{% endif %}
+
+<div class="card mb-4" style="background-color: #F0F0F0;">
+  <div class="card-body p-2">
+    <table class="table table-striped recent-prices-table w-100 mb-0">
+      <thead>
+        <!-- Title row with “Recent Prices” & pagination -->
+        <tr class="title-row">
+          <th colspan="2">Recent Prices</th>
+          <th class="text-end">
+            <!-- Pagination UI placeholder if you want real pagination later -->
+            <nav>
+              <ul class="pagination justify-content-end m-0">
+                <li class="page-item disabled">
+                  <a class="page-link" href="#" tabindex="-1">«</a>
+                </li>
+                <li class="page-item active"><a class="page-link" href="#">1</a></li>
+                <li class="page-item"><a class="page-link" href="#">2</a></li>
+                <li class="page-item"><a class="page-link" href="#">3</a></li>
+                <li class="page-item"><a class="page-link" href="#">»</a></li>
+              </ul>
+            </nav>
+          </th>
+        </tr>
+        <!-- Column headers row -->
+        <tr class="column-header-row">
+          <th>Asset</th>
+          <th>Update Time</th>
+          <th>Price</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rp in recent_prices[::-1][:10] %}
+        <tr>
+          <td>
+            {% if rp.asset_type in ["BTC", "Bitcoin"] %}
+              <img src="/static/images/btc_logo.png" alt="BTC"
+                   style="width:20px; height:20px; margin-right:5px;">
+            {% elif rp.asset_type in ["ETH", "Ethereum"] %}
+              <img src="/static/images/eth_logo.png" alt="ETH"
+                   style="width:20px; height:20px; margin-right:5px;">
+            {% elif rp.asset_type in ["SOL", "Solana"] %}
+              <img src="/static/images/sol_logo.png" alt="SOL"
+                   style="width:20px; height:20px; margin-right:5px;">
+            {% endif %}
+            {{ rp.asset_type }}
+          </td>
+          <td>{{ rp.last_update_time_pst or "N/A" }}</td>
+          <td>{{ rp.current_price }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ====== SECTION 3: Add New Price Panel ====== -->
+<div class="card add-price">
   <div class="card-header">Add New Price</div>
   <div class="card-body">
     <form method="POST" action="{{ url_for('prices') }}">
@@ -102,4 +173,5 @@
     </form>
   </div>
 </div>
+
 {% endblock content %}

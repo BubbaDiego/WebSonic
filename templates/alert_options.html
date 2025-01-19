@@ -14,8 +14,8 @@
     All Alert Ranges
   </div>
 
-  <!-- Card body: white background -->
-  <div class="card-body" style="background-color:#fff;">
+  <!-- Card body: now using #eeeeee instead of white -->
+  <div class="card-body" style="background-color:#eeeeee;">
     <form method="POST" action="{{ url_for('alert_options') }}">
 
       <div class="row">
@@ -24,9 +24,7 @@
 
           <!-- HEAT INDEX -->
           <div class="mb-4 p-2" style="border:1px solid #d2c8b1; background-color:#fff8e6;">
-            <h5 class="fw-bold mb-2">
-              🔥 Heat Index
-            </h5>
+            <h5 class="fw-bold mb-2">🔥 Heat Index</h5>
             <div class="row g-2">
               <div class="col-md-4">
                 <label for="heat_index_low" class="form-label fw-bold">Low</label>
@@ -51,9 +49,7 @@
 
           <!-- COLLATERAL -->
           <div class="mb-4 p-2" style="border:1px solid #d2c8b1; background-color:#fff8e6;">
-            <h5 class="fw-bold mb-2">
-              💰 Collateral
-            </h5>
+            <h5 class="fw-bold mb-2">💰 Collateral</h5>
             <div class="row g-2">
               <div class="col-md-4">
                 <label for="collateral_low" class="form-label fw-bold">Low</label>
@@ -78,9 +74,7 @@
 
           <!-- VALUE -->
           <div class="mb-4 p-2" style="border:1px solid #d2c8b1; background-color:#fff8e6;">
-            <h5 class="fw-bold mb-2">
-              💹 Value
-            </h5>
+            <h5 class="fw-bold mb-2">💹 Value</h5>
             <div class="row g-2">
               <div class="col-md-4">
                 <label for="value_low" class="form-label fw-bold">Low</label>
@@ -105,9 +99,7 @@
 
           <!-- SIZE -->
           <div class="mb-4 p-2" style="border:1px solid #d2c8b1; background-color:#fff8e6;">
-            <h5 class="fw-bold mb-2">
-              📏 Size
-            </h5>
+            <h5 class="fw-bold mb-2">📏 Size</h5>
             <div class="row g-2">
               <div class="col-md-4">
                 <label for="size_low" class="form-label fw-bold">Low</label>
@@ -137,9 +129,7 @@
 
           <!-- LEVERAGE -->
           <div class="mb-4 p-2" style="border:1px solid #d2c8b1; background-color:#fff8e6;">
-            <h5 class="fw-bold mb-2">
-              ⚙ Leverage
-            </h5>
+            <h5 class="fw-bold mb-2">⚙ Leverage</h5>
             <div class="row g-2">
               <div class="col-md-4">
                 <label for="leverage_low" class="form-label fw-bold">Low</label>
@@ -164,9 +154,7 @@
 
           <!-- LIQUIDATION DISTANCE -->
           <div class="mb-4 p-2" style="border:1px solid #d2c8b1; background-color:#fff8e6;">
-            <h5 class="fw-bold mb-2">
-              💥 Liquidation Dist
-            </h5>
+            <h5 class="fw-bold mb-2">💥 Liquidation Dist</h5>
             <div class="row g-2">
               <div class="col-md-4">
                 <label for="liq_dist_low" class="form-label fw-bold">Low</label>
@@ -191,9 +179,7 @@
 
           <!-- TRAVEL PERCENT -->
           <div class="mb-4 p-2" style="border:1px solid #d2c8b1; background-color:#fff8e6;">
-            <h5 class="fw-bold mb-2">
-              🚀 Travel %
-            </h5>
+            <h5 class="fw-bold mb-2">🚀 Travel %</h5>
             <div class="row g-2">
               <div class="col-md-4">
                 <label for="travel_low" class="form-label fw-bold">Low</label>
@@ -218,27 +204,22 @@
 
           <!-- PLACEHOLDER (8th) -->
           <div class="mb-4 p-2" style="border:1px solid #d2c8b1; background-color:#fff8e6;">
-            <h5 class="fw-bold mb-2">
-              ❓ Placeholder
-            </h5>
+            <h5 class="fw-bold mb-2">❓ Placeholder</h5>
             <div class="row g-2">
               <div class="col-md-4">
                 <label for="placeholder_low" class="form-label fw-bold">Low</label>
                 <input type="number" step="0.1" class="form-control"
-                       id="placeholder_low" name="placeholder_low"
-                       value="">
+                       id="placeholder_low" name="placeholder_low" value="">
               </div>
               <div class="col-md-4">
                 <label for="placeholder_medium" class="form-label fw-bold">Med</label>
                 <input type="number" step="0.1" class="form-control"
-                       id="placeholder_medium" name="placeholder_medium"
-                       value="">
+                       id="placeholder_medium" name="placeholder_medium" value="">
               </div>
               <div class="col-md-4">
                 <label for="placeholder_high" class="form-label fw-bold">High</label>
                 <input type="number" step="0.1" class="form-control"
-                       id="placeholder_high" name="placeholder_high"
-                       value="">
+                       id="placeholder_high" name="placeholder_high" value="">
               </div>
             </div>
           </div>

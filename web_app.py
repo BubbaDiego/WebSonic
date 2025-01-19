@@ -11,6 +11,8 @@ from calc_services import CalcServices
 
 # Pydantic-based config from data.config import AppConfig
 from data.config import AppConfig
+from prices.price_monitor import PriceMonitor
+import asyncio
 
 app = Flask(__name__)
 app.debug = True
@@ -280,6 +282,24 @@ def prices():
 
     return render_template("prices.html", prices=prices_data, totals=dummy_totals)
 
+@app.route("/update-prices", methods=["POST"])
+def update_prices():
+    """
+    Manually calls the PriceMonitor to fetch the latest prices.
+    This is a quick synchronous wrapper around async calls.
+    """
+    logger.debug("Manual price update triggered.")
+    try:
+        pm = PriceMonitor("sonic_config.json")
+        # Initialize DataLocker etc.
+        asyncio.run(pm.initialize_monitor())
+        # Actually fetch and store the new prices
+        asyncio.run(pm.update_prices())
+        logger.info("Manual price update succeeded.")
+        return jsonify({"status": "success", "message": "Prices updated successfully!"}), 200
+    except Exception as e:
+        logger.error(f"Error during manual price update: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route("/alert-options", methods=["GET", "POST"])
 def alert_options():
