@@ -12,7 +12,7 @@
     />
     <link
       rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/overlayscrollbars@2.10.1/styles/overlayscrollbars.min.css"
+      href="https://cdn.jsdelivr.net/npm/overlayscrollbars@2.10.1/styles/overlaysscrollbars.min.css"
     />
     <link
       rel="stylesheet"
@@ -29,11 +29,15 @@
       }
       /* Sidebar background: lighter grey */
       .app-sidebar {
-        background-color: #DADADA !important; /* lighter than #D3D3D3 */
+        background-color: #EEEEEE !important; /* Lighter grey than #DADADA */
       }
-      /* Header (Navbar) background: a bit deeper blue than before */
+      /* Header (Navbar) background: a bit deeper blue */
       .app-header.navbar {
         background-color: #7EA6DE !important; /* navy-leaning but not too dark */
+      }
+      /* Make the hamburger icon larger */
+      .navbar .nav-link i.bi-list {
+        font-size: 1.5rem !important; /* Increase from default */
       }
       /* Sidebar text color and hover states */
       .app-sidebar .nav-link {
@@ -115,13 +119,13 @@
                   <p>Heat</p>
                 </a>
               </li>
-                            <!-- Insert Alert Options item here -->
-            <li class="nav-item">
-              <a href="{{ url_for('alert_options') }}" class="nav-link">
-                <i class="nav-icon bi bi-bell"></i>
-                <p>Alert Options</p>
-              </a>
-            </li>
+              <!-- Insert Alert Options item here -->
+              <li class="nav-item">
+                <a href="{{ url_for('alert_options') }}" class="nav-link">
+                  <i class="nav-icon bi bi-bell"></i>
+                  <p>Alert Options</p>
+                </a>
+              </li>
               <li class="nav-item">
                 <a href="{{ url_for('system_config') }}" class="nav-link">
                   <i class="nav-icon bi bi-gear-fill"></i>
@@ -168,7 +172,7 @@
 
     <!-- Required JavaScript (OverlayScrollbars, Popper, Bootstrap, AdminLTE) -->
     <script
-      src="https://cdn.jsdelivr.net/npm/overlaysscrollbars@2.10.1/browser/overlaysscrollbars.browser.es6.min.js"
+      src="https://cdn.jsdelivr.net/npm/overlayscrollbars@2.10.1/browser/overlaysscrollbars.browser.es6.min.js"
     ></script>
     <script
       src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js"

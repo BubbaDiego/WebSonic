@@ -213,6 +213,14 @@
   </div>
 </div>
 
+<!-- New Card: Check Alerts -->
+<div class="card mt-3">
+  <div class="card-header fw-bold">Check Alerts Right Now</div>
+  <div class="card-body">
+    <button type="button" class="btn btn-info" id="checkAlertsBtn">Check Alerts</button>
+  </div>
+</div>
+
 <script>
 // Inline Edit
 function enableEdit(posId) {
@@ -318,6 +326,22 @@ uploadBtn.addEventListener('click', () => {
     console.error("Upload fetch error:", err);
     alert('An error occurred while uploading.');
   });
+});
+
+// Check Alerts (New)
+document.getElementById("checkAlertsBtn").addEventListener("click", function() {
+  fetch("/manual-check-alerts", { method: "POST" })
+    .then(response => response.json())
+    .then(data => {
+      if (data.status === "success") {
+        alert(`Alerts checked: ${data.message}`);
+      } else {
+        alert(`Error checking alerts: ${data.message}`);
+      }
+    })
+    .catch(err => {
+      alert(`Failed to check alerts: ${err}`);
+    });
 });
 </script>
 {% endblock content %}
