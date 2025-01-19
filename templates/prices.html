@@ -42,8 +42,8 @@
 <!-- ====== SECTION 1: Title + Update Button + Boxes ====== -->
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h2 class="text-dark mb-0">Prices</h2>
-  <!-- POST to /prices (adapt if your route is different) -->
-  <form method="POST" action="{{ url_for('update_prices') }}">
+  <!-- POST to /update_prices (we’ll intercept it with JS so we do not remove anything) -->
+  <form method="POST" action="{{ url_for('update_prices') }}" id="updatePricesForm">
     <button type="submit" class="btn btn-success">Update Prices</button>
   </form>
 </div>
@@ -64,7 +64,20 @@
           <img src="/static/images/sol_logo.png" alt="SOL" 
                style="width: 30px; height: 30px; margin-right: 10px;">
         {% endif %}
-        <span>{{ p.asset_type }}</span>
+
+        <!-- Keep your original span, but hide it -->
+        <span style="display: none;">{{ p.asset_type }}</span>
+
+        <!-- Show a nicer label instead -->
+        {% if p.asset_type == "BTC" or p.asset_type == "AssetType.BTC" %}
+          <span>Bitcoin</span>
+        {% elif p.asset_type == "ETH" or p.asset_type == "AssetType.ETH" %}
+          <span>Ethereum</span>
+        {% elif p.asset_type == "SOL" or p.asset_type == "AssetType.SOL" %}
+          <span>Solana</span>
+        {% else %}
+          <span>{{ p.asset_type }}</span>
+        {% endif %}
       </div>
       <div class="card-body text-center">
         <div class="display-4 mb-2">
@@ -117,6 +130,7 @@
       <tbody>
         {% for rp in recent_prices[::-1][:10] %}
         <tr>
+          <!-- Keep your existing display. Just add the if/else for nicer labels. -->
           <td>
             {% if rp.asset_type in ["BTC", "Bitcoin"] %}
               <img src="/static/images/btc_logo.png" alt="BTC"
@@ -128,7 +142,20 @@
               <img src="/static/images/sol_logo.png" alt="SOL"
                    style="width:20px; height:20px; margin-right:5px;">
             {% endif %}
-            {{ rp.asset_type }}
+
+            <!-- Original line, hidden: -->
+            <span style="display: none;">{{ rp.asset_type }}</span>
+
+            <!-- Friendly label: -->
+            {% if rp.asset_type == "BTC" or rp.asset_type == "AssetType.BTC" %}
+              <span>Bitcoin</span>
+            {% elif rp.asset_type == "ETH" or rp.asset_type == "AssetType.ETH" %}
+              <span>Ethereum</span>
+            {% elif rp.asset_type == "SOL" or rp.asset_type == "AssetType.SOL" %}
+              <span>Solana</span>
+            {% else %}
+              <span>{{ rp.asset_type }}</span>
+            {% endif %}
           </td>
           <td>{{ rp.last_update_time_pst or "N/A" }}</td>
           <td>{{ rp.current_price }}</td>
@@ -173,5 +200,27 @@
     </form>
   </div>
 </div>
+
+<!-- ====== SECTION 4: JavaScript to Intercept “Update Prices” & Reload ====== -->
+<script>
+  window.addEventListener('DOMContentLoaded', () => {
+    const updatePricesForm = document.getElementById('updatePricesForm');
+    if (updatePricesForm) {
+      updatePricesForm.addEventListener('submit', (event) => {
+        event.preventDefault(); // Stop normal POST
+        fetch('{{ url_for("update_prices") }}', {
+          method: 'POST'
+        })
+        .then(res => res.json())
+        .then(data => {
+          console.log('Update Prices response:', data);
+          // After the JSON success message, reload the page to see new data:
+          window.location.reload();
+        })
+        .catch(err => console.error('Error updating prices:', err));
+      });
+    }
+  });
+</script>
 
 {% endblock content %}
