@@ -1,44 +1,82 @@
 {% extends "sonic_admin.html" %}
 {% block content %}
+<style>
+  /* Match the Positions color scheme */
+
+  /* Info boxes: light-grey card background, green header */
+  .price-card {
+    background-color: #F0F0F0 !important; /* same grey as sidebars/positions */
+    border: 2px solid #ccc;
+    border-radius: 8px;
+  }
+  .price-card .card-header {
+    background-color: #e5ffe5 !important; /* same green as table heads in positions */
+    font-weight: bold;
+  }
+  /* Make the price nice and big */
+  .price-card .display-4 {
+    font-size: 2.5rem; /* adjust as you like */
+  }
+
+  /* Add Price Card: also a light-grey background & green header */
+  .card.add-price {
+    background-color: #F0F0F0 !important;
+  }
+  .card.add-price .card-header {
+    background-color: #e5ffe5 !important;
+    font-weight: bold;
+  }
+</style>
+
 <h2 class="text-dark mb-4">Prices</h2>
 
-<table class="table table-striped table-bordered mb-5">
-  <thead>
-    <tr>
-      <th>Asset</th>
-      <th>Current Price</th>
-      <th>Last Updated</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for p in prices %}
-    <tr>
-      <td>
-        {% if p.asset_type in ["BTC", "Bitcoin"] %}
-          <img src="/static/images/btc_logo.png" alt="BTC" style="width: 20px; height: 20px; margin-right: 5px;"/>
-        {% elif p.asset_type in ["ETH", "Ethereum"] %}
-          <img src="/static/images/eth_logo.png" alt="ETH" style="width: 20px; height: 20px; margin-right: 5px;"/>
-        {% elif p.asset_type in ["SOL", "Solana"] %}
-          <img src="/static/images/sol_logo.png" alt="SOL" style="width: 20px; height: 20px; margin-right: 5px;"/>
-        {% endif %}
-        {{ p.asset_type }}
-      </td>
-      <td>{{ p.current_price }}</td>
-      <td>{{ p.last_update_time_pst or "N/A" }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<!-- Single button to update all prices -->
+<div class="text-end mb-3">
+  <!-- Adjust the route/method as needed -->
+  <form method="POST" action="{{ url_for('prices') }}">
+    <button type="submit" class="btn btn-success">Update Prices</button>
+  </form>
+</div>
 
-<!-- Add New Price Form -->
-<div class="card">
+<!-- Row of "info boxes" for each price -->
+<div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+  {% for p in prices %}
+  <div class="col">
+    <div class="card price-card h-100">
+      <div class="card-header d-flex align-items-center justify-content-center">
+        {% if p.asset_type in ["BTC", "Bitcoin"] %}
+          <img src="/static/images/btc_logo.png" alt="BTC" style="width: 30px; height: 30px; margin-right: 10px;">
+        {% elif p.asset_type in ["ETH", "Ethereum"] %}
+          <img src="/static/images/eth_logo.png" alt="ETH" style="width: 30px; height: 30px; margin-right: 10px;">
+        {% elif p.asset_type in ["SOL", "Solana"] %}
+          <img src="/static/images/sol_logo.png" alt="SOL" style="width: 30px; height: 30px; margin-right: 10px;">
+        {% endif %}
+        <span>{{ p.asset_type }}</span>
+      </div>
+      <div class="card-body text-center">
+        <!-- Price in big font -->
+        <div class="display-4 mb-2">
+          {{ p.current_price }}
+        </div>
+        <!-- Last updated timestamp -->
+        <small class="text-muted">
+          Last Updated: {{ p.last_update_time_pst or "N/A" }}
+        </small>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Add New Price Form (same style as "Positions" page) -->
+<div class="card add-price mt-4">
   <div class="card-header">Add New Price</div>
   <div class="card-body">
     <form method="POST" action="{{ url_for('prices') }}">
       <div class="row g-3">
         <!-- Asset -->
         <div class="col-md-4">
-          <label for="asset" class="form-label">Asset</label>
+          <label for="asset" class="form-label fw-bold">Asset</label>
           <select class="form-select" id="asset" name="asset" required>
             <option value="BTC">BTC</option>
             <option value="ETH">ETH</option>
@@ -47,10 +85,17 @@
         </div>
         <!-- Price -->
         <div class="col-md-4">
-          <label for="price" class="form-label">Price</label>
-          <input type="number" step="0.01" class="form-control" id="price" name="price" required/>
+          <label for="price" class="form-label fw-bold">Price</label>
+          <input
+            type="number"
+            step="0.01"
+            class="form-control"
+            id="price"
+            name="price"
+            required
+          />
         </div>
-        <div class="col-md-4 align-self-end">
+        <div class="col-md-4 d-flex align-items-end">
           <button type="submit" class="btn btn-primary w-100">Add Price</button>
         </div>
       </div>

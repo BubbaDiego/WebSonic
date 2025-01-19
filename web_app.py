@@ -249,22 +249,37 @@ def upload_positions():
 def prices():
     logger.debug("Entered /prices route.")
     if request.method == "POST":
+        # 1) Handle form data
         try:
             asset = request.form.get("asset", "BTC")
             price_val = float(request.form.get("price", 0.0))
+
+            # Suppose you have a data_locker method that inserts or updates
             data_locker.insert_or_update_price(asset, price_val, "Manual", datetime.now())
+
+            # Redirect back to /prices after processing the POST
+            return redirect(url_for("prices"))
+
         except Exception as e:
             logger.error(f"Error updating price: {e}", exc_info=True)
             return jsonify({"error": str(e)}), 500
-        return redirect(url_for("prices"))
 
+    # 2) If GET => read from DB
+    logger.debug("Fetching prices from DB.")
     prices_data = data_locker.read_prices()
+
+    # Round or format the data if you want
     def roundify(val):
         return round(val, 2) if isinstance(val, (int, float)) else val
     for pr in prices_data:
         for k, v in pr.items():
             pr[k] = roundify(v)
-    return render_template("prices.html", prices=prices_data)
+
+    # If your sonic_admin.html needs a 'totals' var, pass an empty one so it doesn't crash:
+    dummy_totals = {}
+
+    return render_template("prices.html", prices=prices_data, totals=dummy_totals)
+
 
 @app.route("/alert-options", methods=["GET", "POST"])
 def alert_options():
@@ -297,14 +312,104 @@ def heat():
     try:
         positions_data = data_locker.read_positions()
         positions_data = calc_services.prepare_positions_for_display(positions_data)
+
         heat_data = build_heat_data(positions_data)
-        return render_template("heat.html", heat_data=heat_data)
+        if heat_data is None:
+            heat_data = {}
+
+        # Provide an empty dict for `totals` so `sonic_admin.html` won't crash
+        return render_template("heat.html",
+                               heat_data=heat_data,
+                               totals={})
     except Exception as e:
         logger.error(f"Error generating heat page: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 def build_heat_data(positions):
-    return {"dummy": "Implement your logic here."}
+    structure = {
+        "BTC": {"short": None, "long": None},
+        "ETH": {"short": None, "long": None},
+        "SOL": {"short": None, "long": None},
+        "totals": {
+            "short": {
+                "asset": "Short",
+                "collateral": 0.0,
+                "value": 0.0,
+                "leverage": 0.0,
+                "travel_percent": 0.0,
+                "heat_index": 0.0,
+                "size": 0.0
+            },
+            "long": {
+                "asset": "Long",
+                "collateral": 0.0,
+                "value": 0.0,
+                "leverage": 0.0,
+                "travel_percent": 0.0,
+                "heat_index": 0.0,
+                "size": 0.0
+            }
+        }
+    }
+
+    # We'll accumulate data for each position
+    # Example: partial sums to do an average or total
+    partial = {
+        "BTC_short": {"asset":"BTC","collateral":0,"value":0,"size":0,"travel_percent":0,"heat_index":0,"lev_count":0,"heat_count":0},
+        "BTC_long":  {"asset":"BTC","collateral":0,"value":0,"size":0,"travel_percent":0,"heat_index":0,"lev_count":0,"heat_count":0},
+        "ETH_short": {"asset":"ETH","collateral":0,"value":0,"size":0,"travel_percent":0,"heat_index":0,"lev_count":0,"heat_count":0},
+        "ETH_long":  {"asset":"ETH","collateral":0,"value":0,"size":0,"travel_percent":0,"heat_index":0,"lev_count":0,"heat_count":0},
+        "SOL_short": {"asset":"SOL","collateral":0,"value":0,"size":0,"travel_percent":0,"heat_index":0,"lev_count":0,"heat_count":0},
+        "SOL_long":  {"asset":"SOL","collateral":0,"value":0,"size":0,"travel_percent":0,"heat_index":0,"lev_count":0,"heat_count":0},
+    }
+
+    for pos in positions:
+        asset = pos.get("asset_type","BTC").upper()
+        side  = pos.get("position_type","Long").lower()  # "short" or "long"
+        if asset not in ["BTC","ETH","SOL"]:
+            continue  # skip unknown assets
+        key = f"{asset}_{side}"
+
+        partial[key]["collateral"] += pos.get("collateral",0.0)
+        partial[key]["value"]      += pos.get("value",0.0)
+        partial[key]["size"]       += pos.get("size",0.0)
+
+        # track travel% sum => partial[key]["travel_percent"] += ...
+        partial[key]["travel_percent"] += pos.get("current_travel_percent",0.0)
+
+        # track heat => partial[key]["heat_index"] += ...
+        partial[key]["heat_index"] += pos.get("heat_index",0.0)
+        partial[key]["heat_count"] += 1
+
+        # if you want leverage => partial[key]["lev_count"] => do an average or etc.
+
+    # move partial sums -> structure[asset][side]
+    # e.g. if partial["BTC_short"].size>0 => structure["BTC"]["short"] = dict( ... )
+    for combo in partial:
+        side = "short" if "short" in combo else "long"
+        a    = "BTC" if "BTC" in combo else "ETH" if "ETH" in combo else "SOL"
+
+        s_count = partial[combo]["size"]
+        if s_count>0:
+            structure[a][side] = {
+                "asset": a,
+                "collateral": partial[combo]["collateral"],
+                "value":      partial[combo]["value"],
+                "size":       s_count,
+                "travel_percent": partial[combo]["travel_percent"]/(1 if partial[combo]["size"]==0 else partial[combo]["size"])*100, # or do your logic
+                "heat_index": partial[combo]["heat_index"]/(partial[combo]["heat_count"] or 1),
+                "leverage": 0.0  # up to you to calc
+            }
+
+    # also fill structure["totals"]["short"] etc.
+    # example:
+    structure["totals"]["short"]["collateral"] = partial["BTC_short"]["collateral"] + partial["ETH_short"]["collateral"] + partial["SOL_short"]["collateral"]
+    structure["totals"]["short"]["value"]      = partial["BTC_short"]["value"]      + partial["ETH_short"]["value"]      + partial["SOL_short"]["value"]
+    structure["totals"]["short"]["size"]       = partial["BTC_short"]["size"]       + partial["ETH_short"]["size"]       + partial["SOL_short"]["size"]
+    # similarly for "long"
+
+    return structure
+
 
 @app.route("/config", methods=["GET", "POST"])
 def system_config():
