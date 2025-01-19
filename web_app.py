@@ -12,11 +12,12 @@ from calc_services import CalcServices
 # Pydantic-based config from data.config import AppConfig
 from data.config import AppConfig
 from prices.price_monitor import PriceMonitor
+from alerts.alert_manager import AlertManager
+
 import asyncio
 
 app = Flask(__name__)
 app.debug = True
-
 logger = logging.getLogger("WebAppLogger")
 logger.setLevel(logging.DEBUG)
 
@@ -25,6 +26,13 @@ db_path = os.path.abspath("data/mother_brain.db")
 print(f"Using DB at: {db_path}")
 data_locker = DataLocker(db_path=db_path)
 calc_services = CalcServices()
+
+alert_manager = AlertManager(
+    db_path="C:/WebSonic/data/mother_brain.db",
+    poll_interval=60,
+    config_path="sonic_config.json"
+)
+
 
 @app.route("/")
 def index():
@@ -281,6 +289,15 @@ def prices():
     dummy_totals = {}
 
     return render_template("prices.html", prices=prices_data, totals=dummy_totals)
+
+@app.route("/manual-check-alerts", methods=["POST"])
+def manual_check_alerts():
+    try:
+        alert_manager.check_alerts()
+        return jsonify({"status":"success","message":"Alerts checked."}), 200
+    except Exception as e:
+        return jsonify({"status":"error","message":str(e)}),500
+
 
 @app.route("/update-prices", methods=["POST"])
 def update_prices():

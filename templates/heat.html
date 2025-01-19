@@ -1,8 +1,8 @@
 {% extends "sonic_admin.html" %}
 {% block content %}
 
-### ADDED ###
-{% set heat_data = heat_data|default({}) %}
+{# Turn heat_data into a safe local variable "hd". #}
+{% set hd = heat_data|default({}) %}
 
 <h2 class="text-dark mb-4">Heat Report</h2>
 
@@ -85,7 +85,7 @@
     </thead>
     <tbody>
       {% for asset in ["BTC", "ETH", "SOL"] %}
-        {% set asset_data = heat_data.get(asset, {}) %}
+        {% set asset_data = hd.get(asset, {}) %}
         {% set pos = asset_data.get('short') %}
         {% if not pos %}
           <tr class="no-data-row">
@@ -115,7 +115,7 @@
     </tbody>
     <tfoot>
       <tr class="fw-bold totals-row">
-        {% set short_totals = heat_data.get('totals', {}).get('short', {}) %}
+        {% set short_totals = hd.get('totals', {}).get('short', {}) %}
         <td class="short-col">
           {% if short_totals.get('asset') %}
             {% if short_totals.asset == "BTC" %}
@@ -158,7 +158,7 @@
     </thead>
     <tbody>
       {% for asset in ["BTC", "ETH", "SOL"] %}
-        {% set asset_data = heat_data.get(asset, {}) %}
+        {% set asset_data = hd.get(asset, {}) %}
         {% set pos = asset_data.get('long') %}
         {% if not pos %}
           <tr class="no-data-row">
@@ -188,7 +188,7 @@
     </tbody>
     <tfoot>
       <tr class="fw-bold totals-row">
-        {% set long_totals = heat_data.get('totals', {}).get('long', {}) %}
+        {% set long_totals = hd.get('totals', {}).get('long', {}) %}
         <td class="long-col">{{ "{:,}".format(long_totals.get('size',0)|float|round(2)) }}</td>
         <td class="long-col">{{ "{:,}".format(long_totals.get('heat_index',0)|float|round(2)) }}</td>
         <td class="long-col">{{ long_totals.get('travel_percent',0)|float|round(2) }}%</td>
@@ -215,6 +215,39 @@
 </div>
 
 <!-- CHARTS: sizeDist, levChart, assetDist -->
+{# ================== REWRITTEN CHART-LOGIC ================== #}
+{% set shortTotals = hd.get('totals', {}).get('short', {}) %}
+{% set longTotals  = hd.get('totals', {}).get('long',  {}) %}
+{% set shortSize   = shortTotals.get('size', 0)|float|round(2) %}
+{% set longSize    = longTotals.get('size',  0)|float|round(2) %}
+{% set shortLev    = shortTotals.get('leverage', 0)|float|round(2) %}
+{% set longLev     = longTotals.get('leverage',  0)|float|round(2) %}
+
+{# Overall leverage #}
+{% if shortLev>0 and longLev>0 %}
+  {% set overallLev = (shortLev + longLev)/2 %}
+{% else %}
+  {% set overallLev = shortLev + longLev %}
+{% endif %}
+{% if overallLev<0 %}
+  {% set overallLev = 0 %}
+{% endif %}
+{% if overallLev>30 %}
+  {% set overallLev = 30 %}
+{% endif %}
+
+{# For the Asset Distribution #}
+{% set btcShort = hd.get("BTC", {}).get("short", {}).get("size", 0)|float|round(2) %}
+{% set btcLong  = hd.get("BTC", {}).get("long",  {}).get("size", 0)|float|round(2) %}
+{% set ethShort = hd.get("ETH", {}).get("short", {}).get("size", 0)|float|round(2) %}
+{% set ethLong  = hd.get("ETH", {}).get("long",  {}).get("size", 0)|float|round(2) %}
+{% set solShort = hd.get("SOL", {}).get("short", {}).get("size", 0)|float|round(2) %}
+{% set solLong  = hd.get("SOL", {}).get("long",  {}).get("size", 0)|float|round(2) %}
+
+{% set btcTotal = btcShort + btcLong %}
+{% set ethTotal = ethShort + ethLong %}
+{% set solTotal = solShort + solLong %}
+
 <div class="d-flex flex-wrap justify-content-around mt-5">
   <div style="max-width:33%;">
     <canvas id="sizeDist"></canvas>
@@ -232,12 +265,10 @@
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
 <script>
 (function() {
-  // short/long totals
-  const shortSize = {{ heat_data.get("totals", {}).get("short", {}).get("size", 0)|float|round(2) }};
-  const longSize  = {{ heat_data.get("totals", {}).get("long", {}).get("size", 0)|float|round(2) }};
-
   // 1) Size Distribution
-  const sizeCtx = document.getElementById('sizeDist').getContext('2d');
+  const shortSize = {{ shortSize }};
+  const longSize  = {{ longSize }};
+  const sizeCtx   = document.getElementById('sizeDist').getContext('2d');
   new Chart(sizeCtx, {
     type: 'pie',
     data: {
@@ -256,13 +287,13 @@
           font: { size:16, weight:'bold' },
           color: '#000'
         },
-        legend: { position:'bottom' },
+        legend: { position: 'bottom' },
         datalabels: {
           color: '#fff',
           font: { size:14, weight:'bold' },
           formatter: (value, ctx) => {
             const sum = ctx.dataset.data.reduce((a,b)=>a+b,0);
-            return sum>0? (value/sum*100).toFixed(1)+'%' : '0%';
+            return sum>0 ? (value/sum*100).toFixed(1)+'%' : '0%';
           }
         }
       }
@@ -270,14 +301,12 @@
   });
 
   // 2) Leverage
-  const shortLev = {{ heat_data.get("totals", {}).get("short", {}).get("leverage", 0)|float|round(2) }};
-  const longLev  = {{ heat_data.get("totals", {}).get("long",  {}).get("leverage", 0)|float|round(2) }};
-  let overallLev = (shortLev>0 && longLev>0) ? (shortLev+longLev)/2 : (shortLev+longLev);
-  if (overallLev<0) overallLev=0;
-  if (overallLev>30) overallLev=30;
+  const shortLev  = {{ shortLev }};
+  const longLev   = {{ longLev }};
+  let overallLev  = {{ overallLev }};
 
-  const levCtx = document.getElementById('levChart').getContext('2d');
-  const grad   = levCtx.createLinearGradient(0,0,300,0);
+  const levCtx    = document.getElementById('levChart').getContext('2d');
+  const grad      = levCtx.createLinearGradient(0,0,300,0);
   grad.addColorStop(0,'green');
   grad.addColorStop(1,'red');
 
@@ -286,42 +315,35 @@
     data: {
       labels: ['Leverage'],
       datasets: [{
-        label:'Overall Leverage',
-        data:[overallLev],
+        label: 'Overall Leverage',
+        data: [overallLev],
         backgroundColor: grad,
         borderColor: grad,
-        borderWidth:1
+        borderWidth: 1
       }]
     },
     options: {
       plugins: {
         title: {
-          display:true,
-          text:'Total Leverage',
-          font:{ size:16, weight:'bold' },
-          color:'#000'
+          display: true,
+          text: 'Total Leverage',
+          font: { size:16, weight:'bold' },
+          color: '#000'
         },
-        legend:{ display:false }
+        legend: { display:false }
       },
-      indexAxis:'y',
-      scales:{
-        x:{ min:0,max:30, title:{ display:true, text:'Leverage (0..30x)' } },
-        y:{ display:false }
+      indexAxis: 'y',
+      scales: {
+        x: { min:0, max:30, title:{ display:true, text:'Leverage (0..30x)' } },
+        y: { display:false }
       }
     }
   });
 
-  // 3) Asset Distribution: sum short+long sizes for BTC, ETH, SOL
-  const btcShort = {{ heat_data.get("BTC", {}).get("short", {}).get("size",0)|float|round(2) }};
-  const btcLong  = {{ heat_data.get("BTC", {}).get("long",  {}).get("size",0)|float|round(2) }};
-  const ethShort = {{ heat_data.get("ETH", {}).get("short", {}).get("size",0)|float|round(2) }};
-  const ethLong  = {{ heat_data.get("ETH", {}).get("long",  {}).get("size",0)|float|round(2) }};
-  const solShort = {{ heat_data.get("SOL", {}).get("short", {}).get("size",0)|float|round(2) }};
-  const solLong  = {{ heat_data.get("SOL", {}).get("long",  {}).get("size",0)|float|round(2) }};
-
-  const btcTotal = btcShort + btcLong;
-  const ethTotal = ethShort + ethLong;
-  const solTotal = solShort + solLong;
+  // 3) Asset Distribution
+  const btcTotal = {{ btcTotal }};
+  const ethTotal = {{ ethTotal }};
+  const solTotal = {{ solTotal }};
 
   const assetCtx = document.getElementById('assetDist').getContext('2d');
   new Chart(assetCtx, {
@@ -341,18 +363,18 @@
     options: {
       plugins: {
         title: {
-          display:true,
-          text:'Asset Distribution',
-          font:{ size:16, weight:'bold' },
-          color:'#000'
+          display: true,
+          text: 'Asset Distribution',
+          font: { size:16, weight:'bold' },
+          color: '#000'
         },
-        legend: { position:'bottom' },
+        legend: { position: 'bottom' },
         datalabels: {
           color:'#fff',
           font:{ size:14, weight:'bold' },
           formatter: (value, ctx) => {
             const sum = ctx.dataset.data.reduce((a,b)=>a+b,0);
-            return sum>0? (value/sum*100).toFixed(1)+'%' : '0%';
+            return sum>0 ? (value/sum*100).toFixed(1)+'%' : '0%';
           }
         }
       }
@@ -360,4 +382,5 @@
   });
 })();
 </script>
+
 {% endblock content %}

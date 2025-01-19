@@ -1,14 +1,14 @@
 # data/config.py
-
-from pydantic import BaseModel, Field, ValidationError, field_validator
-from typing import Optional, List, Dict
 import json
 import os
 import logging
+from typing import Optional, List, Dict
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("ConfigLoader")
 
+# 1) Sub-config models
 class PriceConfig(BaseModel):
     assets: List[str] = Field(default_factory=lambda: ["BTC", "ETH", "LTC"])
     currency: str = "USD"
@@ -40,8 +40,7 @@ class SystemConfig(BaseModel):
     last_price_update_time: Optional[str] = None
     email_config: Optional[EmailConfig] = EmailConfig()
 
-# If previously you had 'alert_ranges' inside SystemConfig, remove it from there!
-
+# 2) If you have more advanced “ranges,” keep them or remove them if you store them differently.
 class AlertSubRange(BaseModel):
     low: Optional[float] = 0.0
     medium: Optional[float] = 100.0
@@ -70,18 +69,17 @@ class APIConfig(BaseModel):
     coinmarketcap_api_key: Optional[str] = "YOUR_CMC_API_KEY"
     binance_api_enabled: str = "ENABLE"
 
+# 3) The main AppConfig
 class AppConfig(BaseModel):
     price_config: PriceConfig = PriceConfig()
     system_config: SystemConfig = SystemConfig()
     api_config: APIConfig = APIConfig()
-
-    # <--- add alert_ranges here at the top-level
     alert_ranges: AlertRanges = AlertRanges()
 
     @classmethod
     def load(cls, config_path: str = 'sonic_config.json') -> 'AppConfig':
         try:
-            with open(config_path, 'r') as f:
+            with open(config_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             logger.debug("Loaded configuration data:")
             logger.debug(json.dumps(data, indent=4))
@@ -98,3 +96,14 @@ class AppConfig(BaseModel):
         except Exception as e:
             logger.error(f"Failed to load configuration: {e}")
             return cls()
+
+    def save(self, config_path: str):
+        """
+        Save the current config to disk as JSON. Overwrites existing file.
+        """
+        try:
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(self.dict(), f, indent=4)
+            logger.debug(f"Configuration saved to '{config_path}'.")
+        except Exception as e:
+            logger.error(f"Failed to save configuration: {e}")
