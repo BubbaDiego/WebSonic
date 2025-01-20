@@ -179,6 +179,10 @@ class DataLocker:
 
         now_str = datetime.now().isoformat()
 
+        # NEW LINE #1: Log old count if row isn't None
+        old_count = row["total_reports"] if row else 0
+        self.logger.debug(f"Previous total_reports for {api_name} = {old_count}")
+
         if row is None:
             # Insert new row
             self.cursor.execute("""
@@ -196,6 +200,7 @@ class DataLocker:
 
         self.conn.commit()
         self.logger.debug(f"Incremented API report counter for {api_name}, set last_updated={now_str}.")
+
 
     def insert_price(self, price: Price):
         """
