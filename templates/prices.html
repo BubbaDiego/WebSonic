@@ -31,13 +31,6 @@
     font-weight: bold;
   }
 
-  /* Column header row can stay as is or also get purple if you prefer:
-  .recent-prices-table thead tr.column-header-row,
-  .api-status-table thead tr.column-header-row {
-    background-color: #f0e5ff !important; 
-  }
-  */
-
   /* Add Price Card styling */
   .card.add-price {
     background-color: #F0F0F0 !important;
@@ -90,7 +83,6 @@
       </div>
       <div class="card-body text-center">
         <div class="display-4 mb-2">
-          <!-- Round to 2 decimals -->
           {{ p.current_price|round(2) }}
         </div>
         <small class="text-muted">
@@ -114,7 +106,7 @@
             <tr class="title-row">
               <th colspan="2">Recent Prices</th>
               <th class="text-end">
-                <!-- Pagination UI placeholder if you want real pagination later -->
+                <!-- Pagination UI placeholder -->
                 <nav>
                   <ul class="pagination justify-content-end m-0">
                     <li class="page-item disabled">
@@ -174,38 +166,37 @@
   </div>
 
   <!-- RIGHT COLUMN: New "API Status" panel/table -->
-<div class="col-md-6">
-  <div class="card mb-4" style="background-color: #F0F0F0;">
-    <div class="card-body p-2">
-      <table class="table table-striped w-100 mb-0 api-status-table">
-        <thead>
-          <!-- Title row for “API Status” (light purple) -->
-          <tr class="title-row">
-            <th colspan="4">
-              <i class="fas fa-broadcast-tower"></i> API Status
-            </th>
-          </tr>
-          <!-- Column headers -->
-          <tr class="column-header-row">
-            <th>API</th>
-            <th>Status</th>
-            <th>Last Updated</th>
-            <th>Total Reports</th>
-          </tr>
-        </thead>
-
-        <!-- Only ONE <tbody>, ONE for-loop -->
-        <tbody>
-          {% for row in api_counters %}
-            <tr>
-              <td>{{ row.api_name }}</td>
-              <td>Online</td>
-              <td>N/A</td>
-              <td>{{ row.total_reports }}</td>
+  <div class="col-md-6">
+    <div class="card mb-4" style="background-color: #F0F0F0;">
+      <div class="card-body p-2">
+        <table class="table table-striped w-100 mb-0 api-status-table">
+          <thead>
+            <!-- Title row for “API Status” (light purple) -->
+            <tr class="title-row">
+              <th colspan="4">
+                <i class="fas fa-broadcast-tower"></i> API Status
+              </th>
             </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+            <!-- Column headers -->
+            <tr class="column-header-row">
+              <th>API</th>
+              <th>Status</th>
+              <th>Last Updated</th>
+              <th>Total Reports</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in api_counters %}
+              <tr>
+                <td>{{ row.api_name }}</td>
+                <td>Online</td>
+                <td>N/A</td>
+                <td>{{ row.total_reports }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 </div>
@@ -252,20 +243,34 @@
     const updatePricesForm = document.getElementById('updatePricesForm');
     if (updatePricesForm) {
       updatePricesForm.addEventListener('submit', (event) => {
-        event.preventDefault(); // Stop normal POST
+        event.preventDefault(); // Stop normal form submission
+
         fetch('{{ url_for("update_prices") }}', {
-          method: 'POST'
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          // If your /update-prices endpoint expects any data, pass it in the body:
+          // body: JSON.stringify({ foo: "bar" })
         })
-        .then(res => res.json())
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`Server returned status ${response.status}`);
+          }
+          return response.json();
+        })
         .then(data => {
           console.log('Update Prices response:', data);
-          // After success, reload the page to see new data:
+          // Reload the page to see new data
           window.location.reload();
         })
-        .catch(err => console.error('Error updating prices:', err));
+        .catch(err => {
+          console.error('Error updating prices:', err);
+          alert(`Failed to update prices: ${err.message}`);
+        });
       });
     }
   });
 </script>
 
-{% endblock content %}
+{% endblock %}

@@ -192,59 +192,37 @@ def delete_all_positions():
         return jsonify({"error": str(e)}), 500
 
 # Upload route is repeated in your code, so we keep just one version:
+
+
 @app.route("/upload-positions", methods=["POST"])
 def upload_positions():
-    """
-    Accept JSON (or .txt with JSON) -> auto-calc fields -> insert
-    """
-    logger.debug("upload_positions route triggered.")
+    app.logger.info("upload_positions route called!")
     try:
-        if 'file' not in request.files:
-            logger.error("No file part in request.")
-            return jsonify({"error": "No file provided"}), 400
+        if "file" not in request.files:
+            return jsonify({"error": "No file part in the request"}), 400
 
-        file = request.files['file']
-        if not file or file.filename == '':
-            logger.error("File is blank.")
-            return jsonify({"error": "No file selected"}), 400
+        file = request.files["file"]
+        if not file:
+            return jsonify({"error": "Empty file"}), 400
 
-        logger.debug(f"Received file: {file.filename}")
-        json_data = json.load(file)
-        if not isinstance(json_data, list):
-            logger.error("Uploaded JSON must be a list of positions.")
-            return jsonify({"error": "JSON is not a list"}), 400
+        file_contents = file.read().decode("utf-8")
 
-        inserted_count = 0
-        for item in json_data:
-            prepped_list = calc_services.prepare_positions_for_display([item])
-            prepped_item = prepped_list[0]
+        # Check if file_contents is empty
+        if not file_contents.strip():
+            return jsonify({"error": "Uploaded file is empty"}), 400
 
-            asset_type = prepped_item.get("asset_type", "BTC")
-            position_type = prepped_item.get("position_type", "Long")
-            collateral = float(prepped_item.get("collateral", 0.0))
-            size = float(prepped_item.get("size", 0.0))
-            entry_price = float(prepped_item.get("entry_price", 0.0))
-            liquidation_price = float(prepped_item.get("liquidation_price", 0.0))
-            current_travel_percent = float(prepped_item.get("current_travel_percent", 0.0))
-            heat_index = float(prepped_item.get("heat_index", 0.0))
+        positions_data = json.loads(file_contents)  # This can raise JSONDecodeError
+        # Now do your DB inserts using positions_data...
+        for pos_dict in positions_data:
+             data_locker.create_position(Position(**pos_dict))
 
-            data_locker.cursor.execute("""
-                INSERT INTO positions
-                (asset_type, position_type, collateral, size, entry_price, liquidation_price,
-                 current_travel_percent, heat_index)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                asset_type, position_type, collateral, size, entry_price, liquidation_price,
-                current_travel_percent, heat_index
-            ))
-            inserted_count += 1
+        return jsonify({"message": "Positions uploaded successfully"}), 200
 
-        data_locker.conn.commit()
-        logger.debug(f"Positions uploaded successfully. Inserted {inserted_count} rows.")
-        return jsonify({"success": True, "inserted": inserted_count}), 200
-
+    except json.JSONDecodeError as je:
+        app.logger.error(f"Invalid JSON data: {je}", exc_info=True)
+        return jsonify({"error": "Invalid JSON in uploaded file"}), 400
     except Exception as e:
-        logger.error(f"Error uploading positions: {e}", exc_info=True)
+        app.logger.error(f"Error uploading positions: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 # --------------------------------------------------

@@ -17,13 +17,11 @@ class DataLocker:
 
     _instance: Optional['DataLocker'] = None
 
-
     def __init__(self, db_path: str):
         self.db_path = db_path
         self.logger = logging.getLogger("DataLockerLogger")
         self.conn = None
         self.cursor = None
-      #  self.logger.debug(f"DataLocker initialized with database path: {self.db_path}")
         self._initialize_database()
 
     def _initialize_database(self):
@@ -47,7 +45,7 @@ class DataLocker:
                 )
             """)
 
-            # POSITIONS TABLE (replace the dots with real column definitions)
+            # POSITIONS TABLE
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS positions (
                     id TEXT PRIMARY KEY,
@@ -71,7 +69,7 @@ class DataLocker:
                 )
             """)
 
-            # ALERTS TABLE (again, remove or replace the dots)
+            # ALERTS TABLE
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS alerts (
                     id TEXT PRIMARY KEY,
@@ -92,7 +90,7 @@ class DataLocker:
 
             # NEW TABLE: API STATUS COUNTERS
             cursor.execute("""
-                 CREATE TABLE IF NOT EXISTS api_status_counters (
+                CREATE TABLE IF NOT EXISTS api_status_counters (
                     api_name TEXT PRIMARY KEY,
                     total_reports INTEGER NOT NULL DEFAULT 0,
                     last_updated DATETIME
@@ -105,6 +103,7 @@ class DataLocker:
         except sqlite3.Error as e:
             self.logger.error(f"Error initializing database: {e}", exc_info=True)
             raise
+
     @classmethod
     def get_instance(cls, db_path: str) -> 'DataLocker':
         """
@@ -115,7 +114,13 @@ class DataLocker:
             cls._instance = cls(db_path)
         return cls._instance
 
+    # ----------------------------------------------------------------
+    # Ensure we have only ONE version of this init helper
+    # ----------------------------------------------------------------
     def _init_sqlite_if_needed(self):
+        """
+        Ensures self.conn and self.cursor are available.
+        """
         if self.conn is None:
             self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
             self.conn.row_factory = sqlite3.Row
@@ -179,7 +184,6 @@ class DataLocker:
 
         now_str = datetime.now().isoformat()
 
-        # NEW LINE #1: Log old count if row isn't None
         old_count = row["total_reports"] if row else 0
         self.logger.debug(f"Previous total_reports for {api_name} = {old_count}")
 
@@ -201,7 +205,6 @@ class DataLocker:
         self.conn.commit()
         self.logger.debug(f"Incremented API report counter for {api_name}, set last_updated={now_str}.")
 
-
     def insert_price(self, price: Price):
         """
         Inserts a NEW row for this Price. We'll do a lookup for the last row (if any)
@@ -209,9 +212,6 @@ class DataLocker:
         unless you supply them in the Price object yourself.
         """
         try:
-            # Validate Price via Pydantic
-           # price.model_validate()
-
             price_dict = price.model_dump()
 
             conn = sqlite3.connect(self.db_path)
@@ -229,7 +229,6 @@ class DataLocker:
             last_row = cursor.fetchone()
 
             if last_row:
-                # If not explicitly set, fill these from the previous row
                 if price_dict["previous_price"] == 0.0:
                     price_dict["previous_price"] = float(last_row["current_price"])
                 if not price_dict["previous_update_time"]:
@@ -318,10 +317,7 @@ class DataLocker:
             prices = []
             for row in rows:
                 row_dict = dict(row)
-                # Convert string -> enum
                 row_dict["asset_type"] = AssetType(row_dict["asset_type"])
-                # row_dict["source"] = SourceType(row_dict["source"]) # if you have an extended enum
-
                 p = Price(**row_dict)
                 prices.append(p)
 
@@ -345,28 +341,6 @@ class DataLocker:
         """
         prices = self.get_prices(asset_type)
         return [p.model_dump() for p in prices]
-
-    def read_positions(self) -> List[Dict]:
-        """
-        Returns a list of plain dictionaries, each row as a dict.
-        If you only had get_positions before, now we keep it AND add this.
-        """
-        self._init_sqlite_if_needed()
-        results: List[Dict] = []
-
-        try:
-            self.logger.debug("Fetching positions as raw dictionaries...")
-            self.cursor.execute("SELECT * FROM positions")
-            rows = self.cursor.fetchall()
-
-            for row in rows:
-                results.append(dict(row))
-
-            self.logger.debug(f"Fetched {len(results)} positions (dict).")
-            return results
-        except Exception as e:
-            self.logger.error(f"Error fetching raw dict positions: {e}", exc_info=True)
-            return []
 
     def get_latest_price(self, asset_type: AssetType) -> Optional[Price]:
         """
@@ -528,27 +502,29 @@ class DataLocker:
             self.logger.exception(f"Unexpected error in delete_alert: {e}")
             raise
 
+    # ----------------------------------------------------------------
+    # FINAL Insert/Update Price Method (No Duplicate)
+    # ----------------------------------------------------------------
     def insert_or_update_price(self, asset_type: str, current_price: float, source: str, timestamp=None):
         """
         Link function so PriceMonitor can call data_locker.insert_or_update_price(...)
         without causing an AttributeError. We do a simple check:
-        1) If there's an existing row for `asset_type`, we update current_price.
-        2) Otherwise, we construct a Price object and call insert_price(...).
+          1) If there's an existing row for `asset_type`, we update current_price.
+          2) Otherwise, we construct a Price object and call insert_price(...).
         """
         self._init_sqlite_if_needed()
 
-        # 1) If timestamp is not provided, use now
         if timestamp is None:
-            from datetime import datetime
             timestamp = datetime.now()
 
-        # 2) See if we already have a row for this asset
+        # See if we already have a row for this asset
         self.cursor.execute("SELECT id FROM prices WHERE asset_type = ?", (asset_type,))
         row = self.cursor.fetchone()
 
         if row:
-            # 3) We found an existing row => do a quick update
+            # existing row => do an update
             try:
+                self.logger.debug(f"Updating existing price row for {asset_type}.")
                 self.cursor.execute("""
                     UPDATE prices
                     SET current_price = ?, last_update_time = ?, source = ?
@@ -558,12 +534,10 @@ class DataLocker:
             except Exception as e:
                 self.logger.error(f"Error updating existing price row for {asset_type}: {e}", exc_info=True)
         else:
-            # 4) No row => construct a Price object & call insert_price(...)
-            #    Make sure you adapt the import to match your Pydantic model’s path
+            # no row => build a Price object & call insert_price(...)
+            self.logger.debug(f"No existing row for {asset_type}; inserting new price row.")
             from data.models import Price, AssetType, SourceType
-            from datetime import datetime
 
-            # We'll default previous_price=0.0 and previous_update_time=None
             price_obj = Price(
                 asset_type=AssetType(asset_type),
                 current_price=current_price,
@@ -579,44 +553,32 @@ class DataLocker:
     # ----------------------------------------------------------------
 
     def create_position(self, position: Position):
-        """
-        Inserts a new position. If no ID is supplied, generate a UUID.
-        """
         try:
-            position.model_validate()
+            # No second validation needed; it's already done
             pos_data = position.model_dump()
-
-            if not pos_data.get("id"):
-                pos_data["id"] = str(uuid4())
 
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-
             cursor.execute("""
                 INSERT INTO positions (
-                    id, asset_type, position_type, entry_price, liquidation_price,
-                    current_travel_percent, value, collateral, size, wallet, leverage,
-                    last_updated, alert_reference_id, hedge_buddy_id, current_price,
+                    id, asset_type, position_type,
+                    entry_price, liquidation_price, current_travel_percent,
+                    value, collateral, size, wallet, leverage, last_updated,
+                    alert_reference_id, hedge_buddy_id, current_price,
                     liquidation_distance, heat_index, current_heat_index
                 )
                 VALUES (
-                    :id, :asset_type, :position_type, :entry_price, :liquidation_price,
-                    :current_travel_percent, :value, :collateral, :size, :wallet, :leverage,
-                    :last_updated, :alert_reference_id, :hedge_buddy_id, :current_price,
+                    :id, :asset_type, :position_type,
+                    :entry_price, :liquidation_price, :current_travel_percent,
+                    :value, :collateral, :size, :wallet, :leverage, :last_updated,
+                    :alert_reference_id, :hedge_buddy_id, :current_price,
                     :liquidation_distance, :heat_index, :current_heat_index
                 )
             """, pos_data)
             conn.commit()
             conn.close()
-            self.logger.debug(f"Created position with ID={pos_data['id']}")
 
-        except ValidationError as ve:
-            self.logger.error(f"Position validation error: {ve.json()}")
-        except sqlite3.IntegrityError as ie:
-            self.logger.error(f"Integrity error during position creation: {ie}", exc_info=True)
-        except sqlite3.Error as e:
-            self.logger.error(f"Database error in create_position: {e}", exc_info=True)
-            raise
+            self.logger.debug(f"Created position with ID={pos_data['id']}")
         except Exception as e:
             self.logger.exception(f"Unexpected error in create_position: {e}")
             raise
@@ -636,7 +598,6 @@ class DataLocker:
             positions = []
             for row in rows:
                 row_dict = dict(row)
-                # Convert row into a Position object
                 p = Position(**row_dict)
                 positions.append(p)
 
@@ -655,18 +616,38 @@ class DataLocker:
 
     def read_positions(self) -> List[dict]:
         """
-        A helper that calls the 'get_positions()' method,
-        then converts each Position object into a plain dict.
+        This calls `get_positions()` (returns Pydantic Position objects),
+        then converts each Position to a dict.
         """
-        position_objs = self.get_positions()  # The real method that returns Pydantic 'Position' objects
+        position_objs = self.get_positions()
         results = []
         for pos_obj in position_objs:
-            # If it's a Pydantic model, do:
             results.append(pos_obj.model_dump())
-            # or if it's a normal class with a dict method, do:
-            # results.append(vars(pos_obj))
-
         return results
+
+    # ----------------------------------------------------------------
+    # NEW: If you need the raw row-based version, rename the older one:
+    # ----------------------------------------------------------------
+    def read_positions_raw(self) -> List[Dict]:
+        """
+        Fetches positions as raw dictionaries directly from SQLite (no Pydantic).
+        """
+        self._init_sqlite_if_needed()
+        results: List[Dict] = []
+        try:
+            self.logger.debug("Fetching positions as raw dictionaries...")
+            self.cursor.execute("SELECT * FROM positions")
+            rows = self.cursor.fetchall()
+
+            for row in rows:
+                results.append(dict(row))
+
+            self.logger.debug(f"Fetched {len(results)} positions (raw dict).")
+            return results
+
+        except Exception as e:
+            self.logger.error(f"Error fetching raw dict positions: {e}", exc_info=True)
+            return []
 
     def update_position_size(self, position_id: str, new_size: float):
         """ Update the 'size' field for a given position. """
@@ -704,60 +685,3 @@ class DataLocker:
         except Exception as e:
             self.logger.exception(f"Unexpected error in delete_position: {e}")
             raise
-
-    def _init_sqlite_if_needed(self):
-        """
-        Ensures self.conn and self.cursor are available.
-        We do not remove or overwrite any existing code;
-        we only add this helper to restore 'cursor' usage.
-        """
-        if self.conn is None:
-            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
-            self.conn.row_factory = sqlite3.Row
-
-        if self.cursor is None:
-            self.cursor = self.conn.cursor()
-
-    def insert_or_update_price(self, asset_type: str, current_price: float, source: str, timestamp=None):
-        """
-        Link function so PriceMonitor can call data_locker.insert_or_update_price(...)
-        without causing an AttributeError. We do a simple check:
-        1) If there's an existing row for `asset_type`, we update current_price.
-        2) Otherwise, we construct a Price object and call insert_price(...).
-        """
-        # Make sure we have a cursor/conn
-        self._init_sqlite_if_needed()
-
-        if timestamp is None:
-            timestamp = datetime.now()
-
-        # See if we already have a row for this asset
-        self.cursor.execute("SELECT id FROM prices WHERE asset_type = ?", (asset_type,))
-        row = self.cursor.fetchone()
-
-        if row:
-            # existing row => do an update
-            try:
-                self.logger.debug(f"Updating existing price row for {asset_type}.")
-                self.cursor.execute("""
-                    UPDATE prices
-                    SET current_price = ?, last_update_time = ?, source = ?
-                    WHERE asset_type = ?
-                """, (current_price, timestamp.isoformat(), source, asset_type))
-                self.conn.commit()
-            except Exception as e:
-                self.logger.error(f"Error updating existing price row for {asset_type}: {e}", exc_info=True)
-        else:
-            # no row => build a Price object & call insert_price(...)
-            self.logger.debug(f"No existing row for {asset_type}; inserting new price row.")
-            from data.models import Price, AssetType, SourceType
-
-            price_obj = Price(
-                asset_type=AssetType(asset_type),
-                current_price=current_price,
-                previous_price=0.0,
-                last_update_time=timestamp,
-                previous_update_time=None,
-                source=SourceType(source)
-            )
-            self.insert_price(price_obj)

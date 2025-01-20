@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field, field_validator
 from enum import Enum
 from typing import Optional
 from datetime import datetime
+from uuid import uuid4
 
 class AssetType(str, Enum):
     BTC = "BTC"
@@ -12,6 +13,10 @@ class SourceType(str, Enum):
     AUTO = "Auto"
     MANUAL = "Manual"
     IMPORT = "Import"
+    COINGECKO = "CoinGecko"
+    COINMARKETCAP = "CoinMarketCap"
+    COINPAPRIKA = "CoinPaprika"
+    BINANCE = "Binance"
 
 class Status(str, Enum):
     ACTIVE = "Active"
@@ -23,25 +28,14 @@ class AlertType(str, Enum):
     TRAVEL_PERCENT = "TravelPercent"
     TIME = "Time"
 
-class SourceType(str, Enum):
-    AUTO = "Auto"
-    MANUAL = "Manual"
-    IMPORT = "Import"
-    COINGECKO = "CoinGecko"
-    COINMARKETCAP = "CoinMarketCap"
-    COINPAPRIKA = "CoinPaprika"
-    BINANCE = "Binance"
-
-
 class NotificationType(str, Enum):
     EMAIL = "Email"
     SMS = "SMS"
     ACTION = "Action"
 
-class Price(BaseModel):
-    # Optional 'id' if you want to store the DB row's UUID or an internal ID
-    id: Optional[str] = None
 
+class Price(BaseModel):
+    id: Optional[str] = None
     asset_type: AssetType
     current_price: float = Field(..., gt=0)
     previous_price: float = Field(0.0, ge=0)
@@ -51,12 +45,10 @@ class Price(BaseModel):
 
     @field_validator('previous_update_time', mode='after')
     def check_previous_time(cls, v, info):
-        """
-        Ensures that previous_update_time is not after last_update_time.
-        """
         if v and v > info.data.get('last_update_time'):
             raise ValueError('previous_update_time cannot be after last_update_time')
         return v
+
 
 class Alert(BaseModel):
     id: str
@@ -73,28 +65,38 @@ class Alert(BaseModel):
     notes: Optional[str]
     position_reference_id: Optional[str]
 
+
 class Position(BaseModel):
-    id: str
+    # Autogenerate an 'id' if not provided
+    id: str = Field(default_factory=lambda: str(uuid4()))
     asset_type: AssetType
     position_type: str
+
     entry_price: float
     liquidation_price: float
-    current_travel_percent: float
-    value: float
-    collateral: float
-    size: float
-    wallet: str
-    leverage: Optional[float]
-    last_updated: datetime
-    alert_reference_id: Optional[str]
-    hedge_buddy_id: Optional[str]
-    current_price: Optional[float]
-    liquidation_distance: Optional[float]
 
-    # Renamed from `heat_points` to `heat_index`
-    heat_index: float
-    # Renamed from `current_heat_points` to `current_heat_index`
-    current_heat_index: Optional[float] = 0.0
+    # Provide defaults for numeric fields
+    current_travel_percent: float = 0.0
+    value: float = 0.0
+    collateral: float = 0.0
+    size: float = 0.0
+    leverage: float = 0.0
+
+    # Provide a default for wallet
+    wallet: str = "Default"
+
+    # 'last_updated' gets set to 'now' if not passed
+    last_updated: datetime = Field(default_factory=datetime.now)
+
+    # Optional fields can default to None or a numeric default
+    alert_reference_id: Optional[str] = None
+    hedge_buddy_id: Optional[str] = None
+    current_price: Optional[float] = 0.0
+    liquidation_distance: Optional[float] = None
+
+    # Provide defaults for heat indexes
+    heat_index: float = 0.0
+    current_heat_index: float = 0.0
 
     @field_validator('current_travel_percent', mode='after')
     def validate_travel_percent(cls, v, info):
