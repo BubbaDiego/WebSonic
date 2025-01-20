@@ -370,14 +370,94 @@ def get_recent_prices_from_db(limit=10):
         })
     return recent
 
-##############################
-#   /prices route
-##############################
+def _convert_iso_to_pst(iso_str):
+    """Converts an ISO datetime string to PST (string). Returns 'N/A' on failure."""
+    if not iso_str or iso_str == "N/A":
+        return "N/A"
+
+    pst = pytz.timezone("US/Pacific")
+    try:
+        dt_obj = datetime.fromisoformat(iso_str)
+        dt_pst = dt_obj.astimezone(pst)
+        return dt_pst.strftime("%Y-%m-%d %H:%M:%S %Z")
+    except:
+        return "N/A"
+
+def _get_top_prices_for_assets(db_path, assets=None):
+    """
+    For each asset in `assets`, get the newest row from the 'prices' table.
+    Return a list of dicts with keys: asset_type, current_price, last_update_time_pst
+    """
+    if assets is None:
+        assets = ["BTC", "ETH", "SOL"]
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    results = []
+    for asset in assets:
+        row = cur.execute("""
+            SELECT asset_type, current_price, last_update_time
+              FROM prices
+             WHERE asset_type = ?
+             ORDER BY last_update_time DESC
+             LIMIT 1
+        """, (asset,)).fetchone()
+
+        if row:
+            # Convert last_update_time => PST
+            iso = row["last_update_time"]
+            results.append({
+                "asset_type": row["asset_type"],
+                "current_price": row["current_price"],
+                "last_update_time_pst": _convert_iso_to_pst(iso)
+            })
+        else:
+            # No data => set zero / no time
+            results.append({
+                "asset_type": asset,
+                "current_price": 0.0,
+                "last_update_time_pst": "N/A"
+            })
+
+    conn.close()
+    return results
+
+def _get_recent_prices(db_path, limit=15):
+    """
+    Grab up to `limit` most recent rows from 'prices'.
+    Return list of dicts with asset_type, current_price, and last_update_time_pst.
+    """
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    cur.execute(f"""
+        SELECT asset_type, current_price, last_update_time
+          FROM prices
+         ORDER BY last_update_time DESC
+         LIMIT {limit}
+    """)
+    rows = cur.fetchall()
+    conn.close()
+
+    results = []
+    for r in rows:
+        iso = r["last_update_time"]
+        results.append({
+            "asset_type": r["asset_type"],
+            "current_price": r["current_price"],
+            "last_update_time_pst": _convert_iso_to_pst(iso)
+        })
+    return results
+
+
 @app.route("/prices", methods=["GET", "POST"])
 def prices():
     logger.debug("Entered /prices route.")
 
-    # 1) If POST => handle the “Add New Price” form
+    # 1) If POST => handle “Add New Price” form
     if request.method == "POST":
         asset = request.form.get("asset", "BTC")
         raw_price = request.form.get("price", "0.0")
@@ -391,88 +471,22 @@ def prices():
         )
         return redirect(url_for("prices"))
 
-    # 2) On GET => fetch your top boxes & recent logs
-    # (We’ll re-use the same "top_prices" + "recent_prices" logic you had.)
+    # 2) Build your "top prices" list (BTC/ETH/SOL) from DB
+    top_prices = _get_top_prices_for_assets(DB_PATH, ["BTC", "ETH", "SOL"])
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
+    # 3) Build "recent_prices" from DB
+    recent_prices = _get_recent_prices(DB_PATH, limit=15)
 
-    # — a) Grab the newest row for BTC, ETH, SOL => "top_prices"
-    wanted_assets = ["BTC", "ETH", "SOL"]
-    top_prices = []
-    for asset in wanted_assets:
-        row = cur.execute("""
-            SELECT asset_type, current_price, last_update_time
-              FROM prices
-             WHERE asset_type = ?
-             ORDER BY last_update_time DESC
-             LIMIT 1
-        """, (asset,)).fetchone()
-        if row:
-            top_prices.append({
-                "asset_type": row["asset_type"],
-                "current_price": row["current_price"],
-                "last_update_time_pst": row["last_update_time"]  # will convert below
-            })
-        else:
-            top_prices.append({
-                "asset_type": asset,
-                "current_price": 0.0,
-                "last_update_time_pst": None
-            })
-
-    # — b) Grab up to 15 most recent overall => "recent_prices"
-    cur.execute("""
-        SELECT asset_type, current_price, last_update_time
-          FROM prices
-         ORDER BY last_update_time DESC
-         LIMIT 15
-    """)
-    recent_rows = cur.fetchall()
-    conn.close()
-
-    recent_prices = []
-    for r in recent_rows:
-        recent_prices.append({
-            "asset_type": r["asset_type"],
-            "current_price": r["current_price"],
-            "last_update_time": r["last_update_time"]  # for sorting
-        })
-
-    # 3) Convert last_update_time => PST string
-    pst = pytz.timezone("US/Pacific")
-
-    def convert_to_pststr(iso_str):
-        if not iso_str or iso_str == "N/A":
-            return "N/A"
-        try:
-            dt_obj = datetime.fromisoformat(iso_str)
-            dt_pst = dt_obj.astimezone(pst)
-            return dt_pst.strftime("%Y-%m-%d %H:%M:%S %Z")
-        except:
-            return "N/A"
-
-    # Convert top_prices
-    for t in top_prices:
-        iso = t["last_update_time_pst"]
-        t["last_update_time_pst"] = convert_to_pststr(iso)
-
-    # Convert recent
-    for rp in recent_prices:
-        rp["last_update_time_pst"] = convert_to_pststr(rp["last_update_time"])
-
-    # 4) Load API counters
+    # 4) Read API counters
     api_counters = data_locker.read_api_counters()
 
-    # 5) Render
+    # 5) Render your 'prices.html'
     return render_template(
         "prices.html",
-        prices=top_prices,         # for the top boxes
-        recent_prices=recent_prices,  # for the “Recent Prices” table
-        api_counters=api_counters     # for the “API Status” table
+        prices=top_prices,            # top boxes
+        recent_prices=recent_prices,  # “Recent Prices” table
+        api_counters=api_counters     # “API Status” table
     )
-
 
 ##############################
 #   /update-prices route

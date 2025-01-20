@@ -126,6 +126,8 @@ class PriceMonitor:
             self.data_locker.insert_or_update_price(sym, price, "CoinGecko")
 
         # **Increment the counter for "CoinGecko"**
+
+
         self.data_locker.increment_api_report_counter("CoinGecko")
 
     async def _fetch_and_store_coinpaprika(self):

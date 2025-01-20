@@ -92,9 +92,10 @@ class DataLocker:
 
             # NEW TABLE: API STATUS COUNTERS
             cursor.execute("""
-                CREATE TABLE IF NOT EXISTS api_status_counters (
+                 CREATE TABLE IF NOT EXISTS api_status_counters (
                     api_name TEXT PRIMARY KEY,
-                    total_reports INTEGER NOT NULL DEFAULT 0
+                    total_reports INTEGER NOT NULL DEFAULT 0,
+                    last_updated DATETIME
                 )
             """)
 
@@ -135,17 +136,22 @@ class DataLocker:
 
     def read_api_counters(self) -> List[dict]:
         """
-        Returns all rows from `api_status_counters` as a list of dicts
-        with keys: api_name and total_reports.
+        Returns all rows from `api_status_counters`, including last_updated.
         """
         self._init_sqlite_if_needed()
-        self.cursor.execute("SELECT api_name, total_reports FROM api_status_counters ORDER BY api_name ASC")
+        self.cursor.execute("""
+            SELECT api_name, total_reports, last_updated
+              FROM api_status_counters
+             ORDER BY api_name
+        """)
         rows = self.cursor.fetchall()
+
         results = []
         for r in rows:
             results.append({
                 "api_name": r["api_name"],
-                "total_reports": r["total_reports"]
+                "total_reports": r["total_reports"],
+                "last_updated": r["last_updated"],  # might be None
             })
         return results
 
@@ -157,25 +163,39 @@ class DataLocker:
         self.cursor.execute("UPDATE api_status_counters SET total_reports = 0")
         self.conn.commit()
 
-    def increment_api_report_counter(self, api_name: str):
+    def increment_api_report_counter(self, api_name: str) -> None:
         """
-        Increments total_reports for api_name by 1 (inserting row if needed).
+        Increments total_reports for the specified api_name by 1.
+        Also sets last_updated to the current time.
         """
         self._init_sqlite_if_needed()
-        self.cursor.execute("SELECT total_reports FROM api_status_counters WHERE api_name = ?", (api_name,))
+
+        # Check if row exists
+        self.cursor.execute(
+            "SELECT total_reports FROM api_status_counters WHERE api_name = ?",
+            (api_name,)
+        )
         row = self.cursor.fetchone()
+
+        now_str = datetime.now().isoformat()
+
         if row is None:
+            # Insert new row
             self.cursor.execute("""
-                INSERT INTO api_status_counters (api_name, total_reports)
-                VALUES (?, 1)
-            """, (api_name,))
+                INSERT INTO api_status_counters (api_name, total_reports, last_updated)
+                VALUES (?, 1, ?)
+            """, (api_name, now_str))
         else:
+            # Increment existing
             self.cursor.execute("""
                 UPDATE api_status_counters
-                   SET total_reports = total_reports + 1
+                   SET total_reports = total_reports + 1,
+                       last_updated = ?
                  WHERE api_name = ?
-            """, (api_name,))
+            """, (now_str, api_name))
+
         self.conn.commit()
+        self.logger.debug(f"Incremented API report counter for {api_name}, set last_updated={now_str}.")
 
     def insert_price(self, price: Price):
         """
