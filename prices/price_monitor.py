@@ -1,158 +1,208 @@
+# prices/price_monitor.py
 import asyncio
 import logging
-from typing import Dict, Optional
-import aiohttp  # <-- for async HTTP requests
-
+from typing import Dict, Optional, List
+from data.hybrid_config_manager import load_config_hybrid
 from data.data_locker import DataLocker
-from data.config import AppConfig
+from prices.coingecko_fetcher import fetch_current_coingecko
+from prices.coinmarketcap_fetcher import fetch_current_cmc, fetch_historical_cmc
+from prices.coinpaprika_fetcher import fetch_current_coinpaprika
+from prices.binance_fetcher import fetch_current_binance
+
+
 
 logger = logging.getLogger("PriceMonitorLogger")
 
-
 class PriceMonitor:
-    def __init__(self, config_path: str = 'sonic_config.json'):
+    def __init__(self,
+                 db_path="C:/WebSonic/data/mother_brain.db",
+                 config_path="C:/WebSonic/sonic_config.json"):
+        self.db_path = db_path
         self.config_path = config_path
-        self.config = self.load_config()
+
+        # 1) Setup data locker & DB
+        self.data_locker = DataLocker(self.db_path)
+        self.db_conn = self.data_locker.get_db_connection()
+
+        # 2) Load final config as a pure dict
+        self.config = load_config_hybrid(self.config_path, self.db_conn)
+
+        # read config for coinpaprika/binance
+        api_cfg = self.config.get("api_config", {})
+        self.coinpaprika_enabled = (api_cfg.get("coinpaprika_api_enabled") == "ENABLE")
+        self.binance_enabled = (api_cfg.get("binance_api_enabled") == "ENABLE")
+
+        # 3) Setup logging
         self.setup_logging()
-        self.assets = self.config.price_config.assets  # e.g. ["BTC", "ETH", "SOL"]
-        self.currency = self.config.price_config.currency  # e.g. "USD"
-        self.data_locker: Optional[DataLocker] = None
 
-        # For CoinGecko, we need to map your asset symbols to their slugs
-        self.coingecko_map = {
-            "BTC": "bitcoin",
-            "ETH": "ethereum",
-            "SOL": "solana",
-            # add more if you want
-        }
+        # 4) Parse relevant fields from config
+        price_cfg = self.config.get("price_config", {})
+        self.assets = price_cfg.get("assets", ["BTC", "ETH"])
+        self.currency = price_cfg.get("currency", "USD")
+        self.cmc_api_key = price_cfg.get("cmc_api_key")  # or from "api_config"
 
-    def load_config(self) -> AppConfig:
-        return AppConfig.load(self.config_path)
+        api_cfg = self.config.get("api_config", {})
+        self.coingecko_enabled = (api_cfg.get("coingecko_api_enabled") == "ENABLE")
+        self.cmc_enabled = (api_cfg.get("coinmarketcap_api_enabled") == "ENABLE")
 
     def setup_logging(self):
-        # Setup logging based on system_config
-        if self.config.system_config.logging_enabled:
-            log_level = getattr(logging, self.config.system_config.log_level.upper(), logging.DEBUG)
+        system_cfg = self.config.get("system_config", {})
+        if system_cfg.get("logging_enabled", True):
+            log_level_str = system_cfg.get("log_level", "DEBUG").upper()
+            log_file = system_cfg.get("log_file", "C:/WebSonic/logs/price_monitor.log")
+            console_out = system_cfg.get("console_output", True)
+
+            log_level = getattr(logging, log_level_str, logging.DEBUG)
+            handlers = [logging.FileHandler(log_file)]
+            if console_out:
+                handlers.append(logging.StreamHandler())
+
             logging.basicConfig(
                 level=log_level,
                 format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                handlers=[
-                    logging.FileHandler(self.config.system_config.log_file),
-                    logging.StreamHandler() if self.config.system_config.console_output else logging.NullHandler()
-                ]
+                handlers=handlers
             )
         else:
-            logging.basicConfig(level=logging.CRITICAL)  # Suppress logs if disabled
+            logging.basicConfig(level=logging.CRITICAL)
 
     async def initialize_monitor(self):
-        try:
-            self.data_locker = DataLocker.get_instance(self.config.system_config.db_path)
-            logger.info("PriceMonitor initialized with configuration.")
-        except Exception as e:
-            logger.error(f"Failed to initialize DataLocker: {e}")
-            raise
-
-    async def get_previous_prices(self) -> Dict[str, float]:
-        """
-        If you have a data_locker method for reading existing prices, call it here.
-        Otherwise, this method can simply return an empty dict or your last-known prices.
-        """
-        try:
-            # Example: if you have data_locker.get_latest_prices() returning { "BTC": 12345.67, ... }
-            previous_prices = self.data_locker.get_latest_prices()
-            return previous_prices
-        except AttributeError:
-            logger.warning("'DataLocker' object has no attribute 'get_latest_prices'. Returning empty.")
-            return {}
-        except Exception as e:
-            logger.error(f"Error fetching previous prices: {e}")
-            return {}
+        # If you need to do any additional async setup
+        logger.info("PriceMonitor initialized with dictionary config.")
 
     async def update_prices(self):
+        logger.info("Starting update_prices...")
+
+        tasks = []
+        if self.coingecko_enabled:
+            tasks.append(self._fetch_and_store_coingecko())
+        if self.cmc_enabled:
+            tasks.append(self._fetch_and_store_cmc())
+        if self.coinpaprika_enabled:
+            tasks.append(self._fetch_and_store_coinpaprika())
+        if self.binance_enabled:
+            tasks.append(self._fetch_and_store_binance())
+
+        if not tasks:
+            logger.warning("No API sources enabled for update_prices.")
+            return
+
+        await asyncio.gather(*tasks)
+        logger.info("All price updates completed.")
+
+    async def _fetch_and_store_coingecko(self):
         """
-        Fetch real prices from CoinGecko for each asset in self.assets,
-        then store them in the database via insert_or_update_price().
+        Actually call fetch_current_coingecko, then store results.
+        We assume 'assets' are in coingecko 'slug' form or we have a map if needed.
         """
-        try:
-            # first see what we had before
-            previous_prices = await self.get_previous_prices()
-            logger.debug(f"Previous prices: {previous_prices}")
+        # For now, let's assume we have a slug map or we just pass them as slugs
+        # e.g. ["bitcoin", "ethereum"]. If you have a real map, do that here
+        slug_map = {
+            "BTC": "bitcoin",
+            "ETH": "ethereum",
+            # etc...
+        }
+        slugs = []
+        for sym in self.assets:
+            if sym.upper() in slug_map:
+                slugs.append(slug_map[sym.upper()])
+            else:
+                logger.warning(f"No slug found for {sym}, skipping.")
+        if not slugs:
+            return
 
-            async with aiohttp.ClientSession() as session:
-                # We'll build one big list of asset IDs (like "bitcoin,ethereum,solana")
-                # so we can call one request to /simple/price with multiple IDs.
-                cg_ids = []
-                for asset in self.assets:
-                    cg_id = self.coingecko_map.get(asset.upper())
-                    if cg_id:
-                        cg_ids.append(cg_id)
-                    else:
-                        logger.warning(f"No CoinGecko mapping found for asset '{asset}'. Skipping.")
+        logger.info("Fetching Coingecko for assets: %s", slugs)
+        cg_data = await fetch_current_coingecko(slugs, self.currency)
+        # cg_data might come back as {"BITCOIN": 12345.67, "ETHEREUM": 2345.67}
+        # If you want them back as BTC/ETH, invert the slug_map:
+        for slug, price in cg_data.items():
+            # find the symbol
+            for k, v in slug_map.items():
+                if v.upper() == slug.upper():
+                    sym = k
+                    break
+            else:
+                sym = slug  # fallback if not found
+            self.data_locker.insert_or_update_price(sym, price, "CoinGecko")
 
-                if not cg_ids:
-                    logger.error("No valid CoinGecko asset IDs found in config.assets. Nothing to update.")
-                    return
+    async def _fetch_and_store_coinpaprika(self):
+        logger.info("Fetching CoinPaprika for assets: ...")
+        # we need a map from "BTC" -> "btc-bitcoin", "ETH" -> "eth-ethereum", etc.
+        paprika_map = {
+            "BTC": "btc-bitcoin",
+            "ETH": "eth-ethereum",
+            "SOL": "sol-solana"
+            # etc...
+        }
+        ids = []
+        for sym in self.assets:
+            if sym.upper() in paprika_map:
+                ids.append(paprika_map[sym.upper()])
+            else:
+                logger.warning(f"No paprika ID found for {sym}, skipping.")
+        if not ids:
+            return
 
-                # Construct the API URL
-                # e.g. https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd
-                url = "https://api.coingecko.com/api/v3/simple/price"
-                params = {
-                    "ids": ",".join(cg_ids),
-                    "vs_currencies": self.currency.lower(),
-                    "include_last_updated_at": "true"
-                }
+        cp_data = await fetch_current_coinpaprika(ids)
+        # e.g. returns { "BTC": 12345.67, "ETH": 2345.67 }
+        for sym, price in cp_data.items():
+            self.data_locker.insert_or_update_price(sym, price, "CoinPaprika")
 
-                logger.info(f"Fetching CoinGecko prices for IDs={params['ids']}, currency={self.currency}")
-                async with session.get(url, params=params, timeout=15) as resp:
-                    resp.raise_for_status()  # raise exception if not 200
-                    data = await resp.json()
+    async def _fetch_and_store_binance(self):
+        logger.info("Fetching Binance for assets: ...")
+        # We'll transform "BTC" -> "BTCUSDT", "ETH" -> "ETHUSDT", etc.
+        binance_symbols = []
+        for sym in self.assets:
+            binance_symbols.append(sym.upper() + "USDT")  # naive approach
+        bn_data = await fetch_current_binance(binance_symbols)
+        # e.g. returns { "BTC": 12345.67, "ETH": 2345.67 }
+        for sym, price in bn_data.items():
+            self.data_locker.insert_or_update_price(sym, price, "Binance")
 
-                # Example data looks like:
-                # {
-                #   "bitcoin": {"usd": 27342, "last_updated_at": 1674049532},
-                #   "ethereum": {"usd": 1852, "last_updated_at": 1674049532}
-                #   ...
-                # }
-                for asset in self.assets:
-                    cg_id = self.coingecko_map.get(asset.upper())
-                    if not cg_id or cg_id not in data:
-                        logger.warning(f"No data returned for asset '{asset}' (CG id={cg_id}). Skipping.")
-                        continue
+    async def _fetch_and_store_cmc(self):
+        logger.info("Fetching CMC for assets: %s", self.assets)
+        cmc_data = await fetch_current_cmc(self.assets, self.currency, self.cmc_api_key)
+        for sym, price in cmc_data.items():
+            self.data_locker.insert_or_update_price(sym, price, "CoinMarketCap")
 
-                    # e.g. data["bitcoin"]["usd"]
-                    new_price = data[cg_id].get(self.currency.lower())
-                    if new_price is None:
-                        logger.warning(f"No price found in data for {asset}, skipping.")
-                        continue
-
-                    # Insert or update DB
-                    self.data_locker.insert_or_update_price(asset, float(new_price), "CoinGecko")
-
-                    logger.info(f"Updated {asset} price to {new_price} {self.currency} (CoinGecko).")
-
-            logger.info("Prices updated successfully from CoinGecko.")
-
-        except asyncio.TimeoutError:
-            logger.error("Timed out fetching prices from CoinGecko.")
-        except aiohttp.ClientError as e:
-            logger.error(f"HTTP error fetching prices: {e}")
-        except Exception as e:
-            logger.error(f"General error updating prices: {e}")
-
-    async def run_monitor_loop(self):
+    async def update_historical_cmc(self, symbol: str, start_date: str, end_date: str):
         """
-        Runs update_prices() in a loop, sleeping in between
-        based on config.system_config.sonic_monitor_loop_time.
+        For a single symbol, fetch daily OHLC from CMC over [start_date, end_date],
+        then store in DB (maybe in a new 'historical_prices' table).
         """
-        while True:
-            await self.update_prices()
-            await asyncio.sleep(self.config.system_config.sonic_monitor_loop_time)
+        if not self.cmc_enabled:
+            logger.warning("CoinMarketCap is not enabled, skipping historical fetch.")
+            return
+        logger.info(f"Fetching historical CMC for {symbol} from {start_date} to {end_date}...")
 
+        records = await fetch_historical_cmc(symbol, start_date, end_date, self.currency, self.cmc_api_key)
+        logger.debug(f"Fetched {len(records)} daily records for {symbol} from CMC.")
+
+        # Now store them, e.g.:
+        for r in records:
+            # You might have data_locker.insert_historical_ohlc(...) or something similar
+            # We'll just pretend:
+            self.data_locker.insert_historical_ohlc(
+                symbol,
+                r["time_open"],
+                r["open"], r["high"], r["low"], r["close"], r["volume"]
+            )
 
 if __name__ == "__main__":
-    monitor = PriceMonitor()
-    try:
-        asyncio.run(monitor.initialize_monitor())
-        asyncio.run(monitor.run_monitor_loop())
-    except Exception as e:
-        logger.critical(f"PriceMonitor failed to start: {e}")
+    import asyncio
+
+    async def main():
+        pm = PriceMonitor(
+            db_path="C:/WebSonic/data/mother_brain.db",
+            config_path="C:/WebSonic/sonic_config.json"
+        )
+        # 1) Init and do real-time update (optional)
+        await pm.initialize_monitor()
+        await pm.update_prices()
+
+        # 2) Historical fetch from 2024-12-01 to 2025-01-19 for BTC
+        #    This is ~49 days, well within your "up to 12 months" daily range
+        start_date = "2024-12-01"
+        end_date = "2025-01-19"
+        await pm.update_historical_cmc("BTC", start_date, end_date)
+
+    asyncio.run(main())

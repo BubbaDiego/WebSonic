@@ -3,8 +3,19 @@
 from typing import Optional, List, Dict
 
 class CalcServices:
+    """
+    This class provides all aggregator/analytics logic for positions:
+     - Calculating value (long/short),
+     - Leverage,
+     - Travel %,
+     - Heat index,
+     - Summaries/Totals,
+     - Optional color coding for display.
+    """
+
     def __init__(self):
-        # Ranges for color mapping
+        # Ranges for color coding (used by get_color).
+        # Adjust as needed or remove if you don't want color-coded fields.
         self.color_ranges = {
             "travel_percent": [
                 (0, 25, "green"),
@@ -29,9 +40,12 @@ class CalcServices:
 
     def calculate_value(self, position: dict) -> float:
         """
-        Safely calculate the position value based on size, entry_price, current_price, and position_type.
-        Logs a warning and returns 0.0 if size <= 0 or current_price <= 0 (instead of raising an error).
-        Supports both long and short positions.
+        Safely calculates a position's value based on:
+          - size,
+          - current_price,
+          - entry_price,
+          - position_type (long/short).
+        If size or current_price <= 0, returns 0.0 with a warning.
         """
         size = float(position.get("size", 0.0))
         current_price = float(position.get("current_price", 0.0))
@@ -43,9 +57,11 @@ class CalcServices:
             return 0.0
 
         if position_type == "long":
+            # Simple: value = size * current_price
             return round(size * current_price, 2)
         elif position_type == "short":
-            # snippet #1 and #2 both used the same short formula:
+            # Example short formula: size * (2*entry_price - current_price)
+            # Adjust as needed for your actual short logic
             return round(size * (2 * entry_price - current_price), 2)
         else:
             print(f"[WARNING] Unsupported position type: {position_type}. Returning value=0.0.")
@@ -53,33 +69,28 @@ class CalcServices:
 
     def calculate_leverage(self, size: float, collateral: float) -> Optional[float]:
         """
-        Calculate leverage based on size and collateral.
-        Returns None if size <= 0 or collateral <= 0.
+        Leverage = size / collateral (assuming 'size' is notional).
+        Returns None if size <= 0 or collateral <= 0 to avoid dividing by zero.
         """
         if size <= 0 or collateral <= 0:
             return None
         return round(size / collateral, 2)
 
-    def calculate_liquid_distance(self, current_price: float, liquidation_price: float) -> float:
+    def calculate_travel_percent(self,
+                                 entry_price: float,
+                                 current_price: float,
+                                 liquidation_price: float,
+                                 debug=False) -> float:
         """
-        Safely calculate the absolute difference between liquidation and current price,
-        defaulting to 0.0 if either is None.
-        """
-        if current_price is None:
-            current_price = 0.0
-        if liquidation_price is None:
-            liquidation_price = 0.0
-        return round(abs(liquidation_price - current_price), 2)
-
-    def calculate_travel_percent(self, entry_price, current_price, liquidation_price, debug=False) -> float:
-        """
-        Attempt to calculate the travel percentage. Returns 0.0 if there's any error
-        or if denominator is zero. Use snippet #1's try/except style for robust handling.
+        Calculate how far along we are between entry_price and liquidation_price,
+        as a percentage.
+        travel% = ((current_price - entry_price) / (liquidation_price - entry_price)) * 100
+        Returns 0.0 if there's any error (zero/negative distance, bad inputs, etc.).
         """
         try:
             if entry_price is None or liquidation_price is None:
                 raise ValueError("Entry price and liquidation price must be provided.")
-            # ensure numeric
+
             if not all(isinstance(x, (int, float)) for x in [entry_price, current_price, liquidation_price]):
                 raise TypeError("All price inputs must be numeric.")
 
@@ -90,36 +101,90 @@ class CalcServices:
                 raise ZeroDivisionError("liquidation_price and entry_price cannot be equal.")
 
             travel_percent = (current_travel / distance) * 100
-
             if debug:
-                print(f"entry={entry_price}, current={current_price}, liq={liquidation_price}, travel%={travel_percent}")
+                print(f"[DEBUG] entry={entry_price}, current={current_price}, liq={liquidation_price}, travel%={travel_percent}")
+
             return travel_percent
 
         except Exception as e:
             print(f"[ERROR] calculate_travel_percent failed: {e}. Returning 0.0.")
             return 0.0
 
+    def calculate_liquid_distance(self, current_price: float, liquidation_price: float) -> float:
+        """
+        Absolute difference between current_price and liquidation_price.
+        Defaults to 0.0 if either is missing.
+        """
+        if current_price is None:
+            current_price = 0.0
+        if liquidation_price is None:
+            liquidation_price = 0.0
+        return round(abs(liquidation_price - current_price), 2)
+
     def calculate_heat_index(self, position: dict) -> Optional[float]:
         """
-        Calculate heat_index based on size, leverage, and collateral.
-        Gracefully handle None by treating them as 0.0.
+        Example "heat index" = (size * leverage) / collateral, or some variation.
+        Returns None if collateral <= 0, else a float.
         """
-        size = float(position.get('size', 0.0) or 0.0)
-        leverage = float(position.get('leverage', 0.0) or 0.0)
-        collateral = float(position.get('collateral', 0.0) or 0.0)
+        size = float(position.get("size", 0.0) or 0.0)
+        leverage = float(position.get("leverage", 0.0) or 0.0)
+        collateral = float(position.get("collateral", 0.0) or 0.0)
 
         if collateral <= 0:
-            return None
-        heat_index = (size * leverage) / collateral
-        return round(heat_index, 2)
+            return None  # or 0.0, depending on your preference
+        hi = (size * leverage) / collateral
+        return round(hi, 2)
 
-
-    @staticmethod
-    def calculate_totals(positions: List[dict]) -> dict:
+    def prepare_positions_for_display(self, positions: List[dict]) -> List[dict]:
         """
-        Aggregates totals for size, value, collateral, plus avg_leverage,
-        avg_travel_percent, and avg_heat_index.
-        Safely converts None to 0.0 for each numeric field.
+        Main aggregator entry point:
+         - Merges the above calculations (value, leverage, heat index, travel_percent).
+         - Optionally applies color coding to certain fields (e.g. travel %).
+         - Returns a list of processed position dicts with aggregator fields set.
+        """
+        processed_positions = []
+        for pos in positions:
+            # 1) Value
+            current_price = float(pos.get("current_price") or 0.0)
+            if current_price > 0:
+                pos["value"] = self.calculate_value(pos)
+            else:
+                pos["value"] = 0.0  # skip aggregator logic if price is invalid
+
+            # 2) Leverage
+            size = float(pos.get("size", 0.0))
+            collateral = float(pos.get("collateral", 0.0))
+            pos["leverage"] = self.calculate_leverage(size, collateral) or 0.0
+
+            # 3) Heat Index
+            pos["heat_index"] = self.calculate_heat_index(pos) or 0.0
+
+            # 4) Travel %
+            # if current_travel_percent isn't already set or is None, compute it
+            if "current_travel_percent" not in pos or pos["current_travel_percent"] is None:
+                entry_price = float(pos.get("entry_price", 0.0))
+                liquidation_price = float(pos.get("liquidation_price", 0.0))
+                pos["current_travel_percent"] = self.calculate_travel_percent(
+                    entry_price, current_price, liquidation_price
+                )
+
+            # 5) Liquid distance
+            pos["liquid_distance"] = self.calculate_liquid_distance(
+                current_price, pos.get("liquidation_price", 0.0)
+            )
+
+            # 6) Color-coded fields (optional)
+            pos["travel_percent_color"] = self.get_color(pos["current_travel_percent"], "travel_percent")
+            pos["heat_index_color"] = self.get_color(pos["heat_index"], "heat_index")
+
+            processed_positions.append(pos)
+
+        return processed_positions
+
+    def calculate_totals(self, positions: List[dict]) -> dict:
+        """
+        Aggregates totals/averages across all positions, e.g. sum of size/value,
+        average leverage, average travel percent, etc.
         """
         total_size = 0.0
         total_value = 0.0
@@ -127,11 +192,11 @@ class CalcServices:
         total_heat_index = 0.0
         heat_index_count = 0
 
+        # We'll do "weighted" sums for leverage/travel% if that makes sense
         weighted_leverage_sum = 0.0
         weighted_travel_percent_sum = 0.0
 
         for pos in positions:
-            # Safely convert possibly None fields to 0.0
             size = float(pos.get("size") or 0.0)
             value = float(pos.get("value") or 0.0)
             collateral = float(pos.get("collateral") or 0.0)
@@ -166,113 +231,13 @@ class CalcServices:
 
     def get_color(self, value: float, metric: str) -> str:
         """
-        Map a numeric value to a color based on predefined ranges for that metric.
+        Returns a color string based on the metric's predefined ranges in self.color_ranges.
+        If the metric isn't found, defaults to "white".
         """
         if metric not in self.color_ranges:
             return "white"
-        for lower, upper, color in self.color_ranges[metric]:
+        for (lower, upper, color) in self.color_ranges[metric]:
             if lower <= value < upper:
                 return color
+        # If it exceeds all upper bounds, default to the last color or "red"
         return "red"
-
-    def validate_position(self, position: dict):
-        """
-        Validate required fields, ensuring no invalid or missing data.
-        Merges snippet #1 and #2 approach.
-        """
-        required_fields = [
-            "asset_type",
-            "position_type",
-            "leverage",
-            "value",
-            "size",
-            "collateral",
-            "entry_price"
-        ]
-        missing_fields = [f for f in required_fields if f not in position]
-        if missing_fields:
-            raise ValueError(f"Missing required fields: {missing_fields}")
-
-        if float(position.get("size", 0)) <= 0:
-            raise ValueError("Size must be greater than zero.")
-        if float(position.get("collateral", 0)) <= 0:
-            raise ValueError("Collateral must be greater than zero.")
-
-    def prepare_positions_for_display(self, positions: list) -> list:
-        """
-        Merges snippet #1 and #2 logic:
-          - If current_price <= 0 => skip aggregator logic, set 'value' = 0.0 (like snippet #1).
-          - Otherwise, recalc value, heat_index, travel_percent, etc. (like snippet #2).
-        """
-        processed_positions = []
-        for pos in positions:
-            current_price = float(pos.get("current_price") or 0.0)
-            size = float(pos.get("size", 0.0))
-
-            # If invalid current_price, skip aggregator
-            if current_price <= 0:
-                pos["value"] = 0.0
-                print(f"[INFO] Skipping aggregator for pos id={pos.get('id')} due to invalid current_price={current_price}")
-            else:
-                # Normal aggregator logic
-                pos["value"] = self.calculate_value(pos)
-
-            # Heat index
-            pos["heat_index"] = self.calculate_heat_index(pos) or 0.0
-
-            # Travel percent
-            if "current_travel_percent" not in pos or pos["current_travel_percent"] is None:
-                entry_price = float(pos.get("entry_price", 0.0))
-                liquidation_price = float(pos.get("liquidation_price", 0.0))
-                pos["current_travel_percent"] = self.calculate_travel_percent(
-                    entry_price, current_price, liquidation_price
-                )
-
-            # Liquid distance
-            pos["liquid_distance"] = self.calculate_liquid_distance(current_price, pos.get("liquidation_price", 0.0))
-
-            # Example color-coded fields:
-            pos["travel_percent_color"] = self.get_color(pos["current_travel_percent"], "travel_percent")
-            pos["heat_index_color"] = self.get_color(pos["heat_index"], "heat_index")
-
-            processed_positions.append(pos)
-
-        return processed_positions
-
-    def calculate_balance_metrics(self, positions: List[Dict]) -> Dict:
-        """
-        Preserves snippet #1's optional method to differentiate short vs long totals.
-        """
-        total_short_size = total_short_collateral = total_short_value = 0.0
-        total_long_size = total_long_collateral = total_long_value = 0.0
-
-        for pos in positions:
-            size = float(pos.get("size", 0.0))
-            collateral = float(pos.get("collateral", 0.0))
-            value = float(pos.get("value", 0.0))
-            ptype = pos.get("position_type", "Long").lower()
-
-            if ptype == "short":
-                total_short_size += size
-                total_short_collateral += collateral
-                total_short_value += value
-            elif ptype == "long":
-                total_long_size += size
-                total_long_collateral += collateral
-                total_long_value += value
-
-        total_size = total_short_size + total_long_size
-        total_collateral = total_short_collateral + total_long_collateral
-        total_value = total_short_value + total_long_value
-
-        return {
-            "total_short_size": total_short_size,
-            "total_long_size": total_long_size,
-            "total_short_collateral": total_short_collateral,
-            "total_long_collateral": total_long_collateral,
-            "total_short_value": total_short_value,
-            "total_long_value": total_long_value,
-            "total_size": total_size,
-            "total_collateral": total_collateral,
-            "total_value": total_value
-        }

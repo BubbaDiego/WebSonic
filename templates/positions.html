@@ -78,36 +78,36 @@
           </td>
           <td><b>{{ pos.position_type }}</b></td>
           <td class="{{ pos.collateral_status }}">
-            <span id="span-collateral-{{ pos.id }}">{{ "{:,}".format(pos.collateral) }}</span>
+            <span id="span-collateral-{{ pos.id }}">{{ "{:,.2f}".format(pos.collateral) }}</span>
             <input type="number" step="0.01" class="form-control d-none"
                    id="edit-collateral-{{ pos.id }}" value="{{ pos.collateral }}">
           </td>
           <td class="{{ pos.value_status }}">
-            {{ "{:,}".format(pos.value) }}
+            {{ "{:,.2f}".format(pos.value) }}
           </td>
           <td class="{{ pos.size_status }}">
-            <span id="span-size-{{ pos.id }}">{{ "{:,}".format(pos.size) }}</span>
+            <span id="span-size-{{ pos.id }}">{{ "{:,.2f}".format(pos.size) }}</span>
             <input type="number" step="0.01" class="form-control d-none"
                    id="edit-size-{{ pos.id }}" value="{{ pos.size }}">
           </td>
-          <td>{{ pos.leverage|float|round(2) }}</td>
+          <td>{{ "{:,.2f}".format(pos.leverage) }}</td>
           <td class="{{ pos.travel_percent_status }}">
             {% if pos.current_travel_percent is not none %}
-              {{ pos.current_travel_percent|round(2) }}%
+              {{ "{:,.2f}".format(pos.current_travel_percent) }}%
             {% else %} 
               N/A 
             {% endif %}
           </td>
           <td class="{{ pos.heat_index_status }}">
             {% if pos.heat_index is not none %}
-              {{ "{:,}".format(pos.heat_index) }}
+              {{ "{:,.2f}".format(pos.heat_index) }}
             {% else %} 
               N/A 
             {% endif %}
           </td>
           <td>
             {% if pos.liquidation_price is not none %}
-              {{ pos.liquidation_price|float|round(2) }}
+              {{ "{:,.2f}".format(pos.liquidation_price) }}
             {% else %} 
               N/A 
             {% endif %}
@@ -151,12 +151,12 @@
         <tr>
           <td>Totals</td>
           <td></td>
-          <td>{{ "{:,}".format(totals.get("total_collateral", 0)) }}</td>
-          <td>{{ "{:,}".format(totals.get("total_value", 0)) }}</td>
-          <td>{{ "{:,}".format(totals.get("total_size", 0)) }}</td>
-          <td>{{ "{:,}".format(totals.get("avg_leverage", 0)) }}</td>
-          <td>{{ "{:,}".format(totals.get("avg_travel_percent", 0)) }}%</td>
-          <td>{{ "{:,}".format(totals.get("avg_heat_index", 0)) }}</td>
+          <td>{{ "{:,.2f}".format(totals.get("total_collateral", 0)) }}</td>
+          <td>{{ "{:,.2f}".format(totals.get("total_value", 0)) }}</td>
+          <td>{{ "{:,.2f}".format(totals.get("total_size", 0)) }}</td>
+          <td>{{ "{:,.2f}".format(totals.get("avg_leverage", 0)) }}</td>
+          <td>{{ "{:,.2f}".format(totals.get("avg_travel_percent", 0)) }}%</td>
+          <td>{{ "{:,.2f}".format(totals.get("avg_heat_index", 0)) }}</td>
           <td></td>
           <td></td>
         </tr>
@@ -251,7 +251,6 @@
           <p class="mb-2">
             Drag &amp; drop a JSON/TXT file here or click to select
           </p>
-          <!-- Accept .json or .txt -->
           <input type="file" id="file-input" 
                  style="display:none;" 
                  accept=".json,.txt">
@@ -262,11 +261,9 @@
         </div>
 
         <div class="d-flex justify-content-between align-items-center mt-2">
-          <!-- Upload button -> /upload-positions -->
           <button type="button" id="upload-btn" class="btn btn-success" disabled>
             Upload Positions
           </button>
-          <!-- Delete All -> /delete-all-positions -->
           <form method="POST" action="/delete-all-positions" style="display:inline;">
             <button type="submit" class="btn btn-danger">Delete All</button>
           </form>
@@ -278,11 +275,9 @@
 
 <!-- New Card: Check Alerts -->
 <div class="card mt-3">
-  <!-- Light green header -->
   <div class="card-header fw-bold header-light-green">
     Check Alerts Right Now
   </div>
-  <!-- Light grey body -->
   <div class="card-body body-light-grey">
     <button type="button" class="btn btn-info" id="checkAlertsBtn">
       Check Alerts
@@ -300,6 +295,7 @@ function enableEdit(posId) {
   document.getElementById(`span-size-${posId}`).classList.add("d-none");
   document.getElementById(`edit-size-${posId}`).classList.remove("d-none");
 }
+
 function cancelEdit(posId) {
   document.getElementById(`edit-btn-${posId}`).classList.remove("d-none");
   document.getElementById(`edit-form-${posId}`).classList.add("d-none");
@@ -340,7 +336,6 @@ dropArea.addEventListener('drop', (e) => {
   e.preventDefault();
   dropArea.classList.remove('bg-light');
   selectedFile = e.dataTransfer.files[0];
-  // Check extension (type detection can be unreliable)
   if (selectedFile && (
     selectedFile.name.toLowerCase().endsWith('.json') ||
     selectedFile.name.toLowerCase().endsWith('.txt')
@@ -378,7 +373,6 @@ uploadBtn.addEventListener('click', () => {
   })
     .then(async (response) => {
       if (!response.ok) {
-        // Attempt to parse any JSON error
         let msg;
         try {
           let data = await response.json();
@@ -408,7 +402,7 @@ document.getElementById("checkAlertsBtn").addEventListener("click", function() {
       } else {
         alert(`Error checking alerts: ${data.message}`);
       }
-    })
+    })         #45
     .catch(err => {
       alert(`Failed to check alerts: ${err}`);
     });

@@ -1,285 +1,690 @@
-import os
-import aiosqlite
-import sqlite3  # If you also do some synchronous calls
+import sqlite3
 import logging
-import datetime
-from typing import Dict, List, Optional
+from data.models import Price, Alert, Position, AssetType, Status
+from typing import List, Dict, Optional
+from datetime import datetime
 from uuid import uuid4
-
-logger = logging.getLogger("DataLockerLogger")
+from pydantic import ValidationError
 
 class DataLocker:
-    _instance = None
+    """
+    A synchronous DataLocker that manages database interactions using sqlite3.
+    Stores:
+      - Multiple rows in the 'prices' table (with 'id' PK, for historical data).
+      - 'positions' table,
+      - 'alerts' table.
+    """
+
+    _instance: Optional['DataLocker'] = None
+
 
     def __init__(self, db_path: str):
         self.db_path = db_path
-        self.logger = logger
+        self.logger = logging.getLogger("DataLockerLogger")
+        self.conn = None
+        self.cursor = None
+      #  self.logger.debug(f"DataLocker initialized with database path: {self.db_path}")
+        self._initialize_database()
 
-        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
-        self.cursor = self.conn.cursor()
+    def _initialize_database(self):
+        """
+        Initializes the database by creating necessary tables if they do not exist.
+        Updated so 'heat_index' and 'current_heat_index' are REAL (floats) with default 0.0.
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
 
-        self.initialize_database_sync()
+            # PRICES TABLE: multiple rows per asset
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS prices (
+                    id TEXT PRIMARY KEY,
+                    asset_type TEXT NOT NULL,
+                    current_price REAL NOT NULL,
+                    previous_price REAL NOT NULL DEFAULT 0.0,
+                    last_update_time DATETIME NOT NULL,
+                    previous_update_time DATETIME,
+                    source TEXT NOT NULL
+                )
+            """)
+
+            # POSITIONS TABLE
+            # Adjust columns to allow fractional heat_index, default them to 0.0
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS positions (
+                    id TEXT PRIMARY KEY,
+                    asset_type TEXT NOT NULL,
+                    position_type TEXT NOT NULL,
+                    entry_price REAL NOT NULL,
+                    liquidation_price REAL NOT NULL,
+                    current_travel_percent REAL NOT NULL DEFAULT 0.0,
+                    value REAL NOT NULL DEFAULT 0.0,
+                    collateral REAL NOT NULL,
+                    size REAL NOT NULL,
+                    wallet TEXT NOT NULL DEFAULT 'Default',
+                    leverage REAL DEFAULT 0.0,
+                    last_updated DATETIME NOT NULL,
+                    alert_reference_id TEXT,
+                    hedge_buddy_id TEXT,
+                    current_price REAL,
+                    liquidation_distance REAL,
+                    heat_index REAL NOT NULL DEFAULT 0.0,
+                    current_heat_index REAL NOT NULL DEFAULT 0.0
+                )
+            """)
+
+            # ALERTS TABLE
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS alerts (
+                    id TEXT PRIMARY KEY,
+                    alert_type TEXT NOT NULL,
+                    trigger_value REAL NOT NULL,
+                    notification_type TEXT NOT NULL,
+                    last_triggered DATETIME,
+                    status TEXT NOT NULL,
+                    frequency INTEGER NOT NULL,
+                    counter INTEGER NOT NULL,
+                    liquidation_distance REAL NOT NULL,
+                    target_travel_percent REAL NOT NULL,
+                    liquidation_price REAL NOT NULL,
+                    notes TEXT,
+                    position_reference_id TEXT
+                )
+            """)
+
+            conn.commit()
+            conn.close()
+            #self.logger.debug("Database initialized and tables ensured.")
+
+        except sqlite3.Error as e:
+            self.logger.error(f"Error initializing database: {e}", exc_info=True)
+            raise
 
     @classmethod
-    def get_instance(cls, db_path: str = "data/mother_brain.db") -> 'DataLocker':
+    def get_instance(cls, db_path: str) -> 'DataLocker':
+        """
+        Returns a singleton-ish instance of DataLocker.
+        Use this if external code calls DataLocker.get_instance(...).
+        """
         if cls._instance is None:
             cls._instance = cls(db_path)
         return cls._instance
 
-    def initialize_database_sync(self):
-        self.logger.debug(f"Initializing database (sync) at {self.db_path}")
+    def _init_sqlite_if_needed(self):
+        if self.conn is None:
+            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            self.conn.row_factory = sqlite3.Row
 
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS prices (
-                asset_type TEXT PRIMARY KEY,
-                current_price REAL,
-                previous_price REAL,
-                avg_daily_swing REAL,
-                avg_1_hour REAL,
-                avg_3_hour REAL,
-                avg_6_hour REAL,
-                avg_24_hour REAL,
-                last_update_time DATETIME,
-                previous_update_time DATETIME,
-                source TEXT
-            )
-        ''')
+        if self.cursor is None:
+            self.cursor = self.conn.cursor()
 
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS positions (
-                id TEXT PRIMARY KEY,
-                asset_type TEXT NOT NULL,
-                position_type TEXT NOT NULL,
-                entry_price REAL NOT NULL,
-                liquidation_price REAL NOT NULL,
-                current_travel_percent REAL NOT NULL,
-                value REAL NOT NULL DEFAULT 0.0,
-                collateral REAL NOT NULL,
-                size REAL NOT NULL,
-                wallet TEXT NOT NULL DEFAULT 'Default',
-                leverage REAL,
-                last_updated DATETIME,
-                alert_reference_id TEXT,
-                hedge_buddy_id TEXT,
-                current_price REAL,
-                liquidation_distance REAL,
-                heat_index REAL,
-                current_heat_index REAL
-            )
-        ''')
-
-        self.cursor.execute('''
-            CREATE TABLE IF NOT EXISTS alerts (
-                id TEXT PRIMARY KEY,
-                alert_type TEXT NOT NULL,
-                trigger_value REAL NOT NULL,
-                notification_type TEXT NOT NULL,
-                last_triggered DATETIME,
-                status TEXT NOT NULL,
-                frequency INTEGER NOT NULL,
-                counter INTEGER NOT NULL,
-                liquidation_distance REAL NOT NULL,
-                target_travel_percent REAL NOT NULL,
-                liquidation_price REAL NOT NULL,
-                notes TEXT,
-                position_reference_id TEXT
-            )
-        ''')
-        self.conn.commit()
-        self.logger.debug("Database tables ensured (sync).")
+    def get_db_connection(self) -> sqlite3.Connection:
+        """
+        Returns the underlying sqlite3 Connection, ensuring it's initialized first.
+        """
+        self._init_sqlite_if_needed()
+        return self.conn
 
     # ----------------------------------------------------------------
-    # POSITIONS
+    # PRICES (Multi-row, storing historical data)
     # ----------------------------------------------------------------
-    def create_position(self, position: dict):
+
+    def insert_price(self, price: Price):
         """
-        Inserts a position into the DB. 
-        - Auto-generate a UUID if `id` is missing.
-        - If 'value' is missing, auto-calc from size*current_price.
-        - If 'wallet' is missing, fallback to 'Default'.
-        - If size or current_price <= 0, raise ValueError.
+        Inserts a NEW row for this Price. We'll do a lookup for the last row (if any)
+        to fill 'previous_price' and 'previous_update_time' automatically,
+        unless you supply them in the Price object yourself.
         """
-        if not position.get("id"):
-            position["id"] = str(uuid4())
-
-        size = float(position.get("size", 0.0))
-        current_price = float(position.get("current_price", 0.0))
-
-        if size <= 0:
-            raise ValueError(f"Refusing to create invalid position: size={size}")
-        if current_price <= 0:
-            raise ValueError(f"Refusing to create invalid position: current_price={current_price}")
-
-        if "value" not in position or position["value"] is None:
-            position["value"] = size * current_price
-
-        if "wallet" not in position or not position["wallet"]:
-            position["wallet"] = "Default"
-
         try:
-            self.cursor.execute('''
-                INSERT INTO positions (
-                    id, asset_type, position_type, entry_price, liquidation_price,
-                    current_travel_percent, value, collateral, size, wallet,
-                    leverage, last_updated, current_price, liquidation_distance
+            # Validate Price via Pydantic
+           # price.model_validate()
+
+            price_dict = price.model_dump()
+
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            # 1) Find the last row for this asset
+            cursor.execute("""
+                SELECT current_price, last_update_time
+                  FROM prices
+                 WHERE asset_type = ?
+                 ORDER BY last_update_time DESC
+                 LIMIT 1
+            """, (price.asset_type.value,))
+            last_row = cursor.fetchone()
+
+            if last_row:
+                # If not explicitly set, fill these from the previous row
+                if price_dict["previous_price"] == 0.0:
+                    price_dict["previous_price"] = float(last_row["current_price"])
+                if not price_dict["previous_update_time"]:
+                    price_dict["previous_update_time"] = last_row["last_update_time"]
+            else:
+                # no prior row for this asset
+                if price_dict["previous_price"] == 0.0:
+                    price_dict["previous_price"] = 0.0
+                if not price_dict["previous_update_time"]:
+                    price_dict["previous_update_time"] = None
+
+            # 2) Assign an id if none given
+            if not price_dict.get("id"):
+                price_dict["id"] = str(uuid4())
+
+            # 3) If last_update_time is missing, set it
+            if not price_dict.get("last_update_time"):
+                price_dict["last_update_time"] = datetime.now()
+
+            # Insert
+            cursor.execute("""
+                INSERT INTO prices (
+                    id,
+                    asset_type,
+                    current_price,
+                    previous_price,
+                    last_update_time,
+                    previous_update_time,
+                    source
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                position["id"],
-                position.get("asset_type"),
-                position.get("position_type"),
-                float(position.get("entry_price", 0.0)),
-                float(position.get("liquidation_price", 0.0)),
-                float(position.get("current_travel_percent", 0.0)),
-                float(position["value"]),
-                float(position.get("collateral", 0.0)),
-                size,
-                position["wallet"],
-                float(position.get("leverage", 1.0)),
-                position.get("last_updated") or datetime.datetime.now().isoformat(),
-                current_price,
-                position.get("liquidation_distance")
-            ))
-            self.conn.commit()
-            self.logger.debug(f"Position created successfully: {position}")
-        except sqlite3.IntegrityError as e:
-            self.logger.error(f"IntegrityError creating position: {e}", exc_info=True)
-        except Exception as e:
-            self.logger.error(f"Error creating position: {e}", exc_info=True)
+                VALUES (
+                    :id, :asset_type, :current_price, :previous_price,
+                    :last_update_time, :previous_update_time, :source
+                )
+            """, {
+                "id": price_dict["id"],
+                "asset_type": price.asset_type.value,
+                "current_price": price_dict["current_price"],
+                "previous_price": price_dict["previous_price"],
+                "last_update_time": price_dict["last_update_time"],
+                "previous_update_time": price_dict["previous_update_time"],
+                "source": price_dict["source"].value
+            })
+            conn.commit()
+            conn.close()
 
-    def update_position(self, position_id: str, new_size: float = None, new_collateral: float = None):
-        try:
-            self.cursor.execute('''
-                UPDATE positions
-                SET size = ?, collateral = ?
-                WHERE id = ?
-            ''', (new_size, new_collateral, position_id))
-            self.conn.commit()
-            self.logger.debug(f"Position {position_id} updated: size={new_size}, collateral={new_collateral}")
+            self.logger.debug(f"Inserted price row for asset={price.asset_type}, id={price_dict['id']}")
+
+        except ValidationError as ve:
+            self.logger.error(f"Price validation error: {ve.json()}")
+            raise
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error during insert_price: {e}", exc_info=True)
+            raise
         except Exception as e:
-            self.logger.error(f"Error updating position {position_id}: {e}", exc_info=True)
+            self.logger.exception(f"Unexpected error in insert_price: {e}")
             raise
 
-    def read_positions(self) -> List[dict]:
+    def get_prices(self, asset_type: Optional[AssetType] = None) -> List[Price]:
         """
-        Reads all positions from the DB. 
-        If any row has an id = None or empty, we assign a UUID and update it,
-        ensuring every position returned to the caller has a valid 'id'.
+        Retrieves rows from 'prices' table. If asset_type is provided, filters by that asset.
+        Returns a list of Price objects.
         """
         try:
-            self.logger.debug("Reading positions from DB.")
-            self.cursor.execute("SELECT rowid, * FROM positions")
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            if asset_type:
+                cursor.execute("""
+                    SELECT *
+                      FROM prices
+                     WHERE asset_type = ?
+                     ORDER BY last_update_time DESC
+                """, (asset_type.value,))
+            else:
+                cursor.execute("""
+                    SELECT *
+                      FROM prices
+                     ORDER BY last_update_time DESC
+                """)
+
+            rows = cursor.fetchall()
+            conn.close()
+
+            prices = []
+            for row in rows:
+                row_dict = dict(row)
+                # Convert string -> enum
+                row_dict["asset_type"] = AssetType(row_dict["asset_type"])
+                # row_dict["source"] = SourceType(row_dict["source"]) # if you have an extended enum
+
+                p = Price(**row_dict)
+                prices.append(p)
+
+            self.logger.debug(f"Retrieved {len(prices)} price rows.")
+            return prices
+
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error in get_prices: {e}", exc_info=True)
+            return []
+        except ValidationError as ve:
+            self.logger.error(f"Price validation error in get_prices: {ve.json()}")
+            return []
+        except Exception as e:
+            self.logger.exception(f"Unexpected error in get_prices: {e}")
+            return []
+
+    def read_prices(self, asset_type: Optional[AssetType] = None) -> List[dict]:
+        """
+        Legacy method returning a list of dicts, similar to older code.
+        Internally calls get_prices() which returns [Price].
+        """
+        prices = self.get_prices(asset_type)
+        return [p.model_dump() for p in prices]
+
+    def read_positions(self) -> List[Dict]:
+        """
+        Returns a list of plain dictionaries, each row as a dict.
+        If you only had get_positions before, now we keep it AND add this.
+        """
+        self._init_sqlite_if_needed()
+        results: List[Dict] = []
+
+        try:
+            self.logger.debug("Fetching positions as raw dictionaries...")
+            self.cursor.execute("SELECT * FROM positions")
             rows = self.cursor.fetchall()
+
+            for row in rows:
+                results.append(dict(row))
+
+            self.logger.debug(f"Fetched {len(results)} positions (dict).")
+            return results
+        except Exception as e:
+            self.logger.error(f"Error fetching raw dict positions: {e}", exc_info=True)
+            return []
+
+    def get_latest_price(self, asset_type: AssetType) -> Optional[Price]:
+        """
+        Return the single most recent Price for the given asset, or None.
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT *
+                  FROM prices
+                 WHERE asset_type = ?
+                 ORDER BY last_update_time DESC
+                 LIMIT 1
+            """, (asset_type.value,))
+            row = cursor.fetchone()
+            conn.close()
+
+            if row:
+                row_dict = dict(row)
+                row_dict["asset_type"] = AssetType(row_dict["asset_type"])
+                return Price(**row_dict)
+            else:
+                return None
+
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error in get_latest_price: {e}", exc_info=True)
+            return None
+        except ValidationError as ve:
+            self.logger.error(f"Price validation error in get_latest_price: {ve.json()}")
+            return None
+        except Exception as e:
+            self.logger.exception(f"Unexpected error in get_latest_price: {e}")
+            return None
+
+    def delete_price(self, price_id: str):
+        """ Delete a price row by its 'id'. """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM prices WHERE id = ?", (price_id,))
+            conn.commit()
+            conn.close()
+            self.logger.debug(f"Deleted price row with ID={price_id}")
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error in delete_price: {e}", exc_info=True)
+            raise
+        except Exception as e:
+            self.logger.exception(f"Unexpected error in delete_price: {e}")
+            raise
+
+    # ----------------------------------------------------------------
+    # ALERTS CRUD
+    # ----------------------------------------------------------------
+
+    def create_alert(self, alert: Alert):
+        """
+        Inserts a new alert record.
+        """
+        try:
+            alert.model_validate()
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            alert_data = alert.model_dump()
+            if not alert_data.get("id"):
+                alert_data["id"] = str(uuid4())
+
+            cursor.execute("""
+                INSERT INTO alerts (
+                    id, alert_type, trigger_value, notification_type, last_triggered,
+                    status, frequency, counter, liquidation_distance, target_travel_percent,
+                    liquidation_price, notes, position_reference_id
+                )
+                VALUES (
+                    :id, :alert_type, :trigger_value, :notification_type, :last_triggered,
+                    :status, :frequency, :counter, :liquidation_distance, :target_travel_percent,
+                    :liquidation_price, :notes, :position_reference_id
+                )
+            """, alert_data)
+            conn.commit()
+            conn.close()
+            self.logger.debug(f"Created alert with ID={alert_data['id']}")
+
+        except ValidationError as ve:
+            self.logger.error(f"Alert validation error: {ve.json()}")
+        except sqlite3.IntegrityError as ie:
+            self.logger.error(f"IntegrityError during alert creation: {ie}", exc_info=True)
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error in create_alert: {e}", exc_info=True)
+            raise
+        except Exception as e:
+            self.logger.exception(f"Unexpected error in create_alert: {e}")
+            raise
+
+    def get_alerts(self) -> List[Alert]:
+        """ Fetch all alerts as a list of Alert objects. """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM alerts")
+            rows = cursor.fetchall()
+            conn.close()
+
+            alerts = []
+            for row in rows:
+                row_dict = dict(row)
+                a = Alert(**row_dict)
+                alerts.append(a)
+
+            self.logger.debug(f"Retrieved {len(alerts)} alerts from DB.")
+            return alerts
+
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error in get_alerts: {e}", exc_info=True)
+            return []
+        except ValidationError as ve:
+            self.logger.error(f"Alert validation error in get_alerts: {ve.json()}")
+            return []
+        except Exception as e:
+            self.logger.exception(f"Unexpected error in get_alerts: {e}")
+            return []
+
+    def update_alert_status(self, alert_id: str, new_status: Status):
+        """ Update the 'status' of an alert by ID. """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE alerts
+                   SET status = ?
+                 WHERE id = ?
+            """, (new_status.value, alert_id))
+            conn.commit()
+            conn.close()
+            self.logger.debug(f"Updated alert {alert_id} status to {new_status}")
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error in update_alert_status: {e}", exc_info=True)
+            raise
+        except Exception as e:
+            self.logger.exception(f"Unexpected error in update_alert_status: {e}")
+            raise
+
+    def delete_alert(self, alert_id: str):
+        """ Delete an alert by ID. """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM alerts WHERE id = ?", (alert_id,))
+            conn.commit()
+            conn.close()
+            self.logger.debug(f"Deleted alert ID={alert_id}")
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error in delete_alert: {e}", exc_info=True)
+            raise
+        except Exception as e:
+            self.logger.exception(f"Unexpected error in delete_alert: {e}")
+            raise
+
+    def insert_or_update_price(self, asset_type: str, current_price: float, source: str, timestamp=None):
+        """
+        Link function so PriceMonitor can call data_locker.insert_or_update_price(...)
+        without causing an AttributeError. We do a simple check:
+        1) If there's an existing row for `asset_type`, we update current_price.
+        2) Otherwise, we construct a Price object and call insert_price(...).
+        """
+        self._init_sqlite_if_needed()
+
+        # 1) If timestamp is not provided, use now
+        if timestamp is None:
+            from datetime import datetime
+            timestamp = datetime.now()
+
+        # 2) See if we already have a row for this asset
+        self.cursor.execute("SELECT id FROM prices WHERE asset_type = ?", (asset_type,))
+        row = self.cursor.fetchone()
+
+        if row:
+            # 3) We found an existing row => do a quick update
+            try:
+                self.cursor.execute("""
+                    UPDATE prices
+                    SET current_price = ?, last_update_time = ?, source = ?
+                    WHERE asset_type = ?
+                """, (current_price, timestamp.isoformat(), source, asset_type))
+                self.conn.commit()
+            except Exception as e:
+                self.logger.error(f"Error updating existing price row for {asset_type}: {e}", exc_info=True)
+        else:
+            # 4) No row => construct a Price object & call insert_price(...)
+            #    Make sure you adapt the import to match your Pydantic model’s path
+            from data.models import Price, AssetType, SourceType
+            from datetime import datetime
+
+            # We'll default previous_price=0.0 and previous_update_time=None
+            price_obj = Price(
+                asset_type=AssetType(asset_type),
+                current_price=current_price,
+                previous_price=0.0,
+                last_update_time=timestamp,
+                previous_update_time=None,
+                source=SourceType(source)
+            )
+            self.insert_price(price_obj)
+
+    # ----------------------------------------------------------------
+    # POSITIONS CRUD
+    # ----------------------------------------------------------------
+
+    def create_position(self, position: Position):
+        """
+        Inserts a new position. If no ID is supplied, generate a UUID.
+        """
+        try:
+            position.model_validate()
+            pos_data = position.model_dump()
+
+            if not pos_data.get("id"):
+                pos_data["id"] = str(uuid4())
+
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                INSERT INTO positions (
+                    id, asset_type, position_type, entry_price, liquidation_price,
+                    current_travel_percent, value, collateral, size, wallet, leverage,
+                    last_updated, alert_reference_id, hedge_buddy_id, current_price,
+                    liquidation_distance, heat_index, current_heat_index
+                )
+                VALUES (
+                    :id, :asset_type, :position_type, :entry_price, :liquidation_price,
+                    :current_travel_percent, :value, :collateral, :size, :wallet, :leverage,
+                    :last_updated, :alert_reference_id, :hedge_buddy_id, :current_price,
+                    :liquidation_distance, :heat_index, :current_heat_index
+                )
+            """, pos_data)
+            conn.commit()
+            conn.close()
+            self.logger.debug(f"Created position with ID={pos_data['id']}")
+
+        except ValidationError as ve:
+            self.logger.error(f"Position validation error: {ve.json()}")
+        except sqlite3.IntegrityError as ie:
+            self.logger.error(f"Integrity error during position creation: {ie}", exc_info=True)
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error in create_position: {e}", exc_info=True)
+            raise
+        except Exception as e:
+            self.logger.exception(f"Unexpected error in create_position: {e}")
+            raise
+
+    def get_positions(self) -> List[Position]:
+        """
+        Returns all positions as a list of Position objects.
+        """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM positions")
+            rows = cursor.fetchall()
+            conn.close()
 
             positions = []
             for row in rows:
-                pos_dict = dict(row)  # Convert row to a dict
-                # rowid is included so we can update that row if ID is missing
-                rowid = pos_dict["rowid"]
-                current_id = pos_dict.get("id")
+                row_dict = dict(row)
+                # Convert row into a Position object
+                p = Position(**row_dict)
+                positions.append(p)
 
-                if not current_id:
-                    # Generate a new UUID for this record
-                    new_id = str(uuid4())
-                    pos_dict["id"] = new_id
-
-                    # Update the DB row in place
-                    self.cursor.execute(
-                        "UPDATE positions SET id=? WHERE rowid=?",
-                        (new_id, rowid)
-                    )
-                    self.conn.commit()
-                    self.logger.debug(f"Assigned new ID={new_id} to position rowid={rowid} previously had None/empty.")
-
-                positions.append(pos_dict)
-
+            self.logger.debug(f"Retrieved {len(positions)} positions.")
             return positions
 
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error in get_positions: {e}", exc_info=True)
+            return []
+        except ValidationError as ve:
+            self.logger.error(f"Position validation error: {ve.json()}")
+            return []
         except Exception as e:
-            self.logger.error(f"Error reading positions: {e}", exc_info=True)
+            self.logger.exception(f"Unexpected error in get_positions: {e}")
             return []
 
-    def get_latest_prices(self) -> Dict[str, float]:
+    def read_positions(self) -> List[dict]:
         """
-        Return a dict of {asset_type: current_price} for all assets in the 'prices' table.
+        A helper that calls the 'get_positions()' method,
+        then converts each Position object into a plain dict.
         """
-        results = {}
-        try:
-            self.logger.debug("Reading latest prices from DB.")
-            self.cursor.execute("SELECT asset_type, current_price FROM prices")
-            rows = self.cursor.fetchall()
-            for row in rows:
-                asset = row["asset_type"]
-                price = row["current_price"]
-                results[asset] = price
-        except Exception as e:
-            self.logger.error(f"Error reading latest prices: {e}", exc_info=True)
+        position_objs = self.get_positions()  # The real method that returns Pydantic 'Position' objects
+        results = []
+        for pos_obj in position_objs:
+            # If it's a Pydantic model, do:
+            results.append(pos_obj.model_dump())
+            # or if it's a normal class with a dict method, do:
+            # results.append(vars(pos_obj))
 
         return results
 
-    def import_portfolio_data(self, portfolio):
-        if "positions" not in portfolio:
-            self.logger.error("No 'positions' key in imported portfolio data.")
-            return
-
-        for pos in portfolio["positions"]:
-            self.create_position(pos)
-
-        self.logger.info("Portfolio data imported successfully.")
-
-    # ----------------------------------------------------------------
-    # PRICES
-    # ----------------------------------------------------------------
-    def read_prices(self) -> List[dict]:
+    def update_position_size(self, position_id: str, new_size: float):
+        """ Update the 'size' field for a given position. """
         try:
-            self.logger.debug("Reading prices from DB.")
-            self.cursor.execute('SELECT * FROM prices')
-            rows = self.cursor.fetchall()
-            return [dict(row) for row in rows]
-        except Exception as e:
-            self.logger.error(f"Error reading prices: {e}", exc_info=True)
-            return []
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE positions
+                   SET size = ?
+                 WHERE id = ?
+            """, (new_size, position_id))
+            conn.commit()
+            conn.close()
+            self.logger.debug(f"Updated size of position {position_id} to {new_size}.")
 
-    def insert_or_update_price(self, asset_type: str, current_price: float, source: str,
-                               timestamp: Optional[datetime.datetime] = None):
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error in update_position_size: {e}", exc_info=True)
+            raise
+        except Exception as e:
+            self.logger.exception(f"Unexpected error in update_position_size: {e}")
+            raise
+
+    def delete_position(self, position_id: str):
+        """ Delete a position by ID. """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM positions WHERE id = ?", (position_id,))
+            conn.commit()
+            conn.close()
+            self.logger.debug(f"Deleted position with ID={position_id}")
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error in delete_position: {e}", exc_info=True)
+            raise
+        except Exception as e:
+            self.logger.exception(f"Unexpected error in delete_position: {e}")
+            raise
+
+    def _init_sqlite_if_needed(self):
+        """
+        Ensures self.conn and self.cursor are available.
+        We do not remove or overwrite any existing code;
+        we only add this helper to restore 'cursor' usage.
+        """
+        if self.conn is None:
+            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            self.conn.row_factory = sqlite3.Row
+
+        if self.cursor is None:
+            self.cursor = self.conn.cursor()
+
+    def insert_or_update_price(self, asset_type: str, current_price: float, source: str, timestamp=None):
+        """
+        Link function so PriceMonitor can call data_locker.insert_or_update_price(...)
+        without causing an AttributeError. We do a simple check:
+        1) If there's an existing row for `asset_type`, we update current_price.
+        2) Otherwise, we construct a Price object and call insert_price(...).
+        """
+        # Make sure we have a cursor/conn
+        self._init_sqlite_if_needed()
+
         if timestamp is None:
-            timestamp = datetime.datetime.now()
-        try:
-            self.cursor.execute('''
-                INSERT INTO prices (
-                    asset_type, current_price, previous_price, avg_daily_swing, avg_1_hour, 
-                    avg_3_hour, avg_6_hour, avg_24_hour, last_update_time, previous_update_time, source
-                )
-                VALUES (?, ?, 0, 0, 0, 0, 0, 0, ?, NULL, ?)
-                ON CONFLICT(asset_type) DO UPDATE SET
-                    previous_price = prices.current_price,
-                    previous_update_time = prices.last_update_time,
-                    current_price = excluded.current_price,
-                    last_update_time = excluded.last_update_time,
-                    source = excluded.source
-            ''', (asset_type, current_price, timestamp.isoformat(), source))
-            self.conn.commit()
-            self.logger.debug(f"Inserted/Updated price for {asset_type} at {current_price}, source={source}")
-        except Exception as e:
-            self.logger.error(f"Error inserting/updating price for {asset_type}: {e}", exc_info=True)
+            timestamp = datetime.now()
 
-    def create_price(self, asset_type: str, price: float, source: str, timestamp: Optional[datetime.datetime]):
-        self.insert_or_update_price(asset_type, price, source, timestamp)
+        # See if we already have a row for this asset
+        self.cursor.execute("SELECT id FROM prices WHERE asset_type = ?", (asset_type,))
+        row = self.cursor.fetchone()
 
-    # ----------------------------------------------------------------
-    # Sync / Dependent Data
-    # ----------------------------------------------------------------
-    def sync_dependent_data(self):
-        self.logger.debug("sync_dependent_data called - implement your logic here if needed.")
+        if row:
+            # existing row => do an update
+            try:
+                self.logger.debug(f"Updating existing price row for {asset_type}.")
+                self.cursor.execute("""
+                    UPDATE prices
+                    SET current_price = ?, last_update_time = ?, source = ?
+                    WHERE asset_type = ?
+                """, (current_price, timestamp.isoformat(), source, asset_type))
+                self.conn.commit()
+            except Exception as e:
+                self.logger.error(f"Error updating existing price row for {asset_type}: {e}", exc_info=True)
+        else:
+            # no row => build a Price object & call insert_price(...)
+            self.logger.debug(f"No existing row for {asset_type}; inserting new price row.")
+            from data.models import Price, AssetType, SourceType
 
-    def sync_calc_services(self):
-        self.logger.debug("sync_calc_services called - implement your logic here if needed.")
-
-    # ----------------------------------------------------------------
-    # Closing / Cleanup
-    # ----------------------------------------------------------------
-    def close(self):
-        if self.conn:
-            self.conn.close()
-            self.logger.debug("Database connection closed.")
+            price_obj = Price(
+                asset_type=AssetType(asset_type),
+                current_price=current_price,
+                previous_price=0.0,
+                last_update_time=timestamp,
+                previous_update_time=None,
+                source=SourceType(source)
+            )
+            self.insert_price(price_obj)

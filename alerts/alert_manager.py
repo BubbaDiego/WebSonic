@@ -6,6 +6,7 @@ import json
 from data.data_locker import DataLocker
 from calc_services import CalcServices
 from data.config import AppConfig
+from data.hybrid_config_manager import load_config_hybrid
 
 logger = logging.getLogger("AlertManagerLogger")
 logger.setLevel(logging.DEBUG)
@@ -29,8 +30,10 @@ class AlertManager:
         self.data_locker = DataLocker(db_path=self.db_path)
         self.calc_services = CalcServices()
 
-        # Load config
-        self.config_data = AppConfig.load(self.config_path)
+        # Load hybrid config using the function from hybrid_config_manager
+        self.db_conn = self.data_locker.get_db_connection()
+        self.config_data = load_config_hybrid(self.config_path, self.db_conn)
+
 
         # If you want a quick and dirty enable/disable map per metric:
         # (you could also store these directly in your config JSON).

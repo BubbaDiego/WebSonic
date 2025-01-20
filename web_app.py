@@ -2,31 +2,52 @@ import os
 import logging
 import json
 import sqlite3
+import asyncio
+import pytz
 from datetime import datetime
+from typing import List, Dict
+from data.hybrid_config_manager import load_config_hybrid
 
-from flask import Flask, request, jsonify, render_template, redirect, url_for
 
-# Example: DataLocker and CalcServices from your existing code
+from flask import (
+    Flask,
+    Blueprint,
+    request,
+    jsonify,
+    render_template,
+    redirect,
+    url_for,
+    flash,
+    send_file
+)
+
+# Your existing imports for models, data locker, calc, etc.
+from data.models import Position
 from data.data_locker import DataLocker
 from calc_services import CalcServices
-
-# Pydantic-based config from data.config import AppConfig
 from data.config import AppConfig
 from prices.price_monitor import PriceMonitor
 from alerts.alert_manager import AlertManager
 
-import asyncio
-
 app = Flask(__name__)
-app.debug = True
+app.debug = False  # or True if you prefer
 logger = logging.getLogger("WebAppLogger")
 logger.setLevel(logging.DEBUG)
 
-# Path to your database
+app.secret_key = "i-like-lamp"
+
+prices_bp = Blueprint('prices_bp', __name__)
+
+# ----------------------------------------------
+#  Database path, DataLocker, AlertManager, etc.
+# ----------------------------------------------
 db_path = os.path.abspath("data/mother_brain.db")
 DB_PATH = "data/mother_brain.db"
-
 print(f"Using DB at: {db_path}")
+
+# At startup:
+db_conn = sqlite3.connect("C:/WebSonic/data/mother_brain.db")
+config = load_config_hybrid("sonic_config.json", db_conn)
 data_locker = DataLocker(db_path=db_path)
 calc_services = CalcServices()
 
@@ -36,121 +57,59 @@ alert_manager = AlertManager(
     config_path="sonic_config.json"
 )
 
-
+# --------------------------------------------------
+# Root route -> Redirect to /positions
+# --------------------------------------------------
 @app.route("/")
 def index():
+    """
+    The main root path: we redirect to /positions,
+    so the app doesn't start on the audio page by default.
+    """
     logger.debug("Reached / (root). Redirecting to /positions.")
     return redirect(url_for("positions"))
 
-@app.route("/positions", methods=["GET", "POST"])
+# --------------------------------------------------
+# Positions
+# --------------------------------------------------
+@app.route("/positions")
 def positions():
     logger.debug("Entered /positions route.")
-
     if request.method == "POST":
-        # Insert new position from form
-        asset_type = request.form.get("asset_type", "BTC")
-        position_type = request.form.get("position_type", "Long")
-        collateral = float(request.form.get("collateral", 0.0))
-        size = float(request.form.get("size", 0.0))
-        entry_price = float(request.form.get("entry_price", 0.0))
-        liquidation_price = float(request.form.get("liquidation_price", 0.0))
-
-        data_locker.cursor.execute("""
-            INSERT INTO positions
-            (asset_type, position_type, collateral, size, entry_price, liquidation_price)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (asset_type, position_type, collateral, size, entry_price, liquidation_price))
-        data_locker.conn.commit()
-
+        # For example, handle form submissions to create/edit positions
         return redirect(url_for("positions"))
 
-    # GET => fetch positions & prices
-    logger.debug("Reading positions/prices from DB.")
-    positions_data = data_locker.read_positions()
-    prices_data = data_locker.read_prices()
+    # GET => fetch from DB
+    positions_data = data_locker.get_positions()  # returns List[Position]
+    prices_data = data_locker.get_prices()        # returns List[Price]
+
     logger.debug(f"Fetched {len(positions_data)} positions, {len(prices_data)} prices.")
 
-    logger.debug("Running aggregator logic.")
-    positions_data = calc_services.prepare_positions_for_display(positions_data)
-    totals = calc_services.calculate_totals(positions_data)
-
-    # Load config for color-coding
-    config_data = AppConfig.load("sonic_config.json")
-
-    def get_alert_status(value, low, medium, high):
-        if high is None:
-            high = float("inf")
-        if value <= low:
-            return ""
-        elif value <= medium:
-            return "bg-warning"
-        else:
-            return "bg-danger"
-
-    # Apply color-coding to each field
-    for pos in positions_data:
-        # Value
-        val_ranges = config_data.alert_ranges.value_ranges
-        pos["value_status"] = get_alert_status(
-            pos.get("value", 0.0),
-            val_ranges.low or 0.0,
-            val_ranges.medium or 9999999.0,
-            val_ranges.high
-        )
-        # Collateral
-        col_ranges = config_data.alert_ranges.collateral_ranges
-        pos["collateral_status"] = get_alert_status(
-            pos.get("collateral", 0.0),
-            col_ranges.low or 0.0,
-            col_ranges.medium or 9999999.0,
-            col_ranges.high
-        )
-        # Size
-        size_ranges = config_data.alert_ranges.size_ranges
-        pos["size_status"] = get_alert_status(
-            pos.get("size", 0.0),
-            size_ranges.low or 0.0,
-            size_ranges.medium or 9999999.0,
-            size_ranges.high
-        )
-        # Heat Index
-        hi_ranges = config_data.alert_ranges.heat_index_ranges
-        pos["heat_index_status"] = get_alert_status(
-            pos.get("heat_index", 0.0),
-            hi_ranges.low or 0.0,
-            hi_ranges.medium or 9999999.0,
-            hi_ranges.high
-        )
-        # Travel %
-        trav_ranges = config_data.alert_ranges.travel_percent_ranges
-        pos["travel_percent_status"] = get_alert_status(
-            pos.get("current_travel_percent", 0.0),
-            trav_ranges.low or -999999.0,
-            trav_ranges.medium or 9999999.0,
-            trav_ranges.high
-        )
-
-    # Round numeric fields for display
-    def roundify(val):
-        return round(val, 2) if isinstance(val, (int, float)) else val
-
-    for pos in positions_data:
-        for k, v in pos.items():
-            if isinstance(v, (int, float)):
-                pos[k] = roundify(v)
-    for pr in prices_data:
-        for k, v in pr.items():
-            if isinstance(v, (int, float)):
-                pr[k] = roundify(v)
-    totals = {k: roundify(v) for k, v in totals.items()}
+    price_map = {pr.asset_type.value: pr.current_price for pr in prices_data}
+    totals = aggregate_positions(positions_data)
 
     return render_template(
         "positions.html",
         positions=positions_data,
-        prices=prices_data,
-        totals=totals,
-        config=config_data
+        price_map=price_map,
+        totals=totals
     )
+
+def aggregate_positions(positions: List[Position]) -> Dict[str, float]:
+    total_collateral = 0.0
+    total_value = 0.0
+    total_size = 0.0
+
+    for pos in positions:
+        total_collateral += pos.collateral
+        total_value += pos.value
+        total_size += pos.size
+
+    return {
+        "total_collateral": total_collateral,
+        "total_value": total_value,
+        "total_size": total_size
+    }
 
 @app.route("/edit-position/<position_id>", methods=["POST"])
 def edit_position(position_id):
@@ -191,7 +150,7 @@ def delete_all_positions():
         logger.error(f"Error deleting all positions: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
-@app.route("/upload-positions", methods=["POST"])
+# Upload route is repeated in your code, so we keep just one version:
 @app.route("/upload-positions", methods=["POST"])
 def upload_positions():
     """
@@ -209,22 +168,16 @@ def upload_positions():
             return jsonify({"error": "No file selected"}), 400
 
         logger.debug(f"Received file: {file.filename}")
-
-        # parse JSON
         json_data = json.load(file)
         if not isinstance(json_data, list):
             logger.error("Uploaded JSON must be a list of positions.")
             return jsonify({"error": "JSON is not a list"}), 400
 
-        # For each item, auto-calc fields using calc_services
         inserted_count = 0
         for item in json_data:
-            # item should be a dict with at least 'asset_type', 'position_type', etc.
-            # 1) run prepare_positions_for_display on a single-item list:
             prepped_list = calc_services.prepare_positions_for_display([item])
-            prepped_item = prepped_list[0]  # now it has 'current_travel_percent', 'heat_index', etc.
+            prepped_item = prepped_list[0]
 
-            # 2) read back the fields we need to insert
             asset_type = prepped_item.get("asset_type", "BTC")
             position_type = prepped_item.get("position_type", "Long")
             collateral = float(prepped_item.get("collateral", 0.0))
@@ -234,9 +187,6 @@ def upload_positions():
             current_travel_percent = float(prepped_item.get("current_travel_percent", 0.0))
             heat_index = float(prepped_item.get("heat_index", 0.0))
 
-            # 3) Insert into DB
-            # Make sure your table has these columns:
-            # current_travel_percent and heat_index
             data_locker.cursor.execute("""
                 INSERT INTO positions
                 (asset_type, position_type, collateral, size, entry_price, liquidation_price,
@@ -246,7 +196,6 @@ def upload_positions():
                 asset_type, position_type, collateral, size, entry_price, liquidation_price,
                 current_travel_percent, heat_index
             ))
-
             inserted_count += 1
 
         data_locker.conn.commit()
@@ -257,108 +206,182 @@ def upload_positions():
         logger.error(f"Error uploading positions: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
+# --------------------------------------------------
+# Prices (Blueprint and main route)
+# --------------------------------------------------
+@prices_bp.route("/prices", methods=["GET", "POST"])
+def show_prices():
+    data_locker = DataLocker.get_instance(db_path=DB_PATH)
+
+    if request.method == "POST":
+        asset = request.form.get("asset", "BTC")
+        price_val = float(request.form.get("price", 0.0))
+        data_locker.insert_or_update_price(asset, price_val, source="Manual", timestamp=datetime.now())
+        return redirect(url_for('prices_bp.show_prices'))
+
+    prices_data = data_locker.read_prices()
+    prices_data_sorted = sorted(
+        prices_data,
+        key=lambda p: p["last_update_time"] or datetime.min,
+        reverse=True
+    )
+
+    import pytz
+    pst_tz = pytz.timezone("US/Pacific")
+    for row in prices_data_sorted:
+        raw_dt = row.get("last_update_time")
+        if raw_dt:
+            try:
+                dt_obj = datetime.fromisoformat(raw_dt)
+                dt_pst = dt_obj.astimezone(pst_tz)
+                row["last_update_time_pst"] = dt_pst.strftime("%Y-%m-%d %H:%M:%S %Z")
+            except:
+                row["last_update_time_pst"] = raw_dt
+
+    return render_template(
+        "prices.html",
+        prices=prices_data_sorted[:3],
+        recent_prices=prices_data_sorted
+    )
 
 @app.route("/prices", methods=["GET", "POST"])
 def prices():
     logger.debug("Entered /prices route.")
+
+    # 1) If a POST => handle new price
     if request.method == "POST":
-        # 1) Handle form data
-        try:
-            asset = request.form.get("asset", "BTC")
-            price_val = float(request.form.get("price", 0.0))
+        asset = request.form.get("asset", "BTC")
+        price_val = float(request.form.get("price", 0.0))
+        data_locker.insert_or_update_price(
+            asset_type=asset,
+            current_price=price_val,
+            source="Manual",
+            timestamp=datetime.now()  # store real time
+        )
+        return redirect(url_for("prices"))
 
-            # Suppose you have a data_locker method that inserts or updates
-            data_locker.insert_or_update_price(asset, price_val, "Manual", datetime.now())
-
-            # Redirect back to /prices after processing the POST
-            return redirect(url_for("prices"))
-
-        except Exception as e:
-            logger.error(f"Error updating price: {e}", exc_info=True)
-            return jsonify({"error": str(e)}), 500
-
-    # 2) If GET => read from DB
+    # 2) GET => read from DB
     logger.debug("Fetching prices from DB.")
     prices_data = data_locker.read_prices()
 
-    # Round or format the data if you want
-    def roundify(val):
-        return round(val, 2) if isinstance(val, (int, float)) else val
-    for pr in prices_data:
-        for k, v in pr.items():
-            pr[k] = roundify(v)
+    # 3) Sort them descending by last_update_time
+    def parse_dt(row):
+        raw_dt = row.get("last_update_time")
+        if not raw_dt:
+            return datetime.min
+        try:
+            return datetime.fromisoformat(raw_dt)
+        except:
+            return datetime.min
 
-    # If your sonic_admin.html needs a 'totals' var, pass an empty one so it doesn't crash:
-    dummy_totals = {}
+    prices_data_sorted = sorted(prices_data, key=parse_dt, reverse=True)
 
-    return render_template("prices.html", prices=prices_data, totals=dummy_totals)
+    # 4) Convert to PST or local time
+    pst_tz = pytz.timezone("US/Pacific")
+    for row in prices_data_sorted:
+        raw_dt = row.get("last_update_time")
+        if raw_dt:
+            try:
+                dt_obj = datetime.fromisoformat(raw_dt)
+                dt_pst = dt_obj.astimezone(pst_tz)
+                row["last_update_time_pst"] = dt_pst.strftime("%Y-%m-%d %H:%M:%S %Z")
+            except:
+                row["last_update_time_pst"] = "N/A"
+        else:
+            row["last_update_time_pst"] = "N/A"
 
+    # 5) Distinct newest row for BTC, ETH, SOL:
+    distinct_latest = {}
+    for row in prices_data_sorted:
+        asset_type = row["asset_type"]
+        # The first time we see an asset in descending order is the newest row
+        if asset_type not in distinct_latest:
+            distinct_latest[asset_type] = row
+
+    # 6) Build top boxes in the order you want
+    top_boxes = []
+    for want_asset in ["BTC", "ETH", "SOL"]:
+        if want_asset in distinct_latest:
+            top_boxes.append(distinct_latest[want_asset])
+
+    # 7) Render template
+    return render_template(
+        "prices.html",
+        prices=top_boxes,              # for the 3 big boxes
+        recent_prices=prices_data_sorted  # entire sorted list
+    )
+
+
+    distinct_latest = {}
+    for row in prices_data_sorted:
+        asset = row["asset_type"]
+        if asset not in distinct_latest:
+            distinct_latest[asset] = row
+
+    top_boxes = []
+    for want_asset in ["BTC", "ETH", "SOL"]:
+        if want_asset in distinct_latest:
+            top_boxes.append(distinct_latest[want_asset])
+
+    return render_template(
+        "prices.html",
+        prices=top_boxes,
+        recent_prices=prices_data_sorted
+    )
+
+# --------------------------------------------------
+# Alerts
+# --------------------------------------------------
 @app.route("/manual-check-alerts", methods=["POST"])
 def manual_check_alerts():
     try:
         alert_manager.check_alerts()
-        return jsonify({"status":"success","message":"Alerts checked."}), 200
+        return jsonify({"status": "success", "message":"Alerts checked."}), 200
     except Exception as e:
-        return jsonify({"status":"error","message":str(e)}),500
-
+        return jsonify({"status":"error", "message":str(e)}), 500
 
 @app.route("/update-prices", methods=["POST"])
 def update_prices():
-    """
-    Manually calls the PriceMonitor to fetch the latest prices.
-    This is a quick synchronous wrapper around async calls.
-    """
     logger.debug("Manual price update triggered.")
     try:
-        pm = PriceMonitor("sonic_config.json")
-        # Initialize DataLocker etc.
+        pm = PriceMonitor()
         asyncio.run(pm.initialize_monitor())
-        # Actually fetch and store the new prices
         asyncio.run(pm.update_prices())
         logger.info("Manual price update succeeded.")
-        return jsonify({"status": "success", "message": "Prices updated successfully!"}), 200
+        return redirect(url_for("prices"))
     except Exception as e:
         logger.error(f"Error during manual price update: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status":"error", "message":str(e)}), 500
 
+# --------------------------------------------------
+# Alert / System Config
+# --------------------------------------------------
 @app.route("/alert-options", methods=["GET", "POST"])
 def alert_options():
-    config_data = AppConfig.load("sonic_config.json")  # or however you load
+    config_data = AppConfig.load("sonic_config.json")
     if request.method == "POST":
-        # e.g. read from form
         new_heat_index_low = float(request.form["heat_index_low"])
         new_heat_index_medium = float(request.form["heat_index_medium"])
         raw_heat_index_high = request.form.get("heat_index_high", "")
         new_heat_index_high = float(raw_heat_index_high) if raw_heat_index_high else None
 
-        # Now store in config_data.alert_ranges (NOT alert_config)
         config_data.alert_ranges.heat_index_ranges.low = new_heat_index_low
         config_data.alert_ranges.heat_index_ranges.medium = new_heat_index_medium
         config_data.alert_ranges.heat_index_ranges.high = new_heat_index_high
 
-        # And so on for the other fields (collateral, value, etc.)
-
-        # Then dump to JSON
         data_dict = config_data.model_dump()
         with open("sonic_config.json", "w") as f:
             json.dump(data_dict, f, indent=2)
-
         return redirect(url_for("alert_options"))
 
     return render_template("alert_options.html", config=config_data)
 
-
 @app.route("/system-options", methods=["GET", "POST"])
 def system_options():
-    """
-    Displays a form for editing system options (SystemConfig, PriceConfig, etc.)
-    Also handles importing new config from JSON file or saving manual changes.
-    """
-    # 1) Load current config
     config = AppConfig.load("sonic_config.json")
 
     if request.method == "POST":
-        # A) If a file is uploaded -> import config
+        # Possibly handle config file import
         if "import_file" in request.files:
             file = request.files["import_file"]
             if file and file.filename:
@@ -377,17 +400,14 @@ def system_options():
                     flash("Please upload a valid JSON file.", "warning")
                     return redirect(url_for("system_options"))
 
-        # B) Otherwise, update from form fields
-        # Example: system_config booleans (checkboxes)
         config.system_config.logging_enabled = (request.form.get("logging_enabled") == "on")
         config.system_config.price_monitor_enabled = (request.form.get("price_monitor_enabled") == "on")
         config.system_config.alert_monitor_enabled = (request.form.get("alert_monitor_enabled") == "on")
-
-        # Example: system_config strings
         config.system_config.log_level = request.form.get("log_level", "DEBUG")
         config.system_config.db_path = request.form.get("db_path", "")
         config.system_config.log_file = request.form.get("log_file", "")
         config.system_config.last_price_update_time = request.form.get("last_price_update_time", None)
+
         try:
             loop_time_str = request.form.get("sonic_monitor_loop_time", "300")
             config.system_config.sonic_monitor_loop_time = int(loop_time_str)
@@ -395,43 +415,35 @@ def system_options():
             flash("Invalid loop time. Using default of 300.", "warning")
             config.system_config.sonic_monitor_loop_time = 300
 
-        # Example: PriceConfig
         assets_str = request.form.get("assets", "BTC,ETH")
         config.price_config.assets = [x.strip() for x in assets_str.split(",")]
         config.price_config.currency = request.form.get("currency", "USD")
+
         try:
             config.price_config.fetch_timeout = int(request.form.get("fetch_timeout", "10"))
         except ValueError:
             config.price_config.fetch_timeout = 10
 
-        # Example: APIConfig toggles
         config.api_config.coingecko_api_enabled = request.form.get("coingecko_api_enabled", "ENABLE")
         config.api_config.binance_api_enabled = request.form.get("binance_api_enabled", "ENABLE")
         config.api_config.coinmarketcap_api_key = request.form.get("coinmarketcap_api_key", "")
 
-        # Example: A few Alert Range fields (like heat_index.low/med/high)
         try:
             config.alert_ranges.heat_index_ranges.low = float(request.form.get("heat_index_low", "0.0"))
             config.alert_ranges.heat_index_ranges.medium = float(request.form.get("heat_index_medium", "200.0"))
             hi_high = request.form.get("heat_index_high", "")
             config.alert_ranges.heat_index_ranges.high = float(hi_high) if hi_high else None
         except ValueError:
-            # If user input is invalid, set defaults or handle gracefully
             pass
 
-        # 3) Save changes back to disk
         config.save("sonic_config.json")
-
         flash("System options saved!", "success")
         return redirect(url_for("system_options"))
 
-    # If GET => just show current config
     return render_template("system_options.html", config=config)
 
-# Example route if you want a direct export link
 @app.route("/export-config")
 def export_config():
-    from flask import send_file
     config_path = os.path.join(os.getcwd(), "sonic_config.json")
     return send_file(
         config_path,
@@ -440,21 +452,17 @@ def export_config():
         mimetype="application/json"
     )
 
+# --------------------------------------------------
+# Heat
+# --------------------------------------------------
 @app.route("/heat", methods=["GET"])
 def heat():
     logger.debug("Entered /heat route.")
     try:
         positions_data = data_locker.read_positions()
         positions_data = calc_services.prepare_positions_for_display(positions_data)
-
-        heat_data = build_heat_data(positions_data)
-        if heat_data is None:
-            heat_data = {}
-
-        # Provide an empty dict for `totals` so `sonic_admin.html` won't crash
-        return render_template("heat.html",
-                               heat_data=heat_data,
-                               totals={})
+        heat_data = build_heat_data(positions_data) or {}
+        return render_template("heat.html", heat_data=heat_data, totals={})
     except Exception as e:
         logger.error(f"Error generating heat page: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
@@ -485,9 +493,6 @@ def build_heat_data(positions):
             }
         }
     }
-
-    # We'll accumulate data for each position
-    # Example: partial sums to do an average or total
     partial = {
         "BTC_short": {"asset":"BTC","collateral":0,"value":0,"size":0,"travel_percent":0,"heat_index":0,"lev_count":0,"heat_count":0},
         "BTC_long":  {"asset":"BTC","collateral":0,"value":0,"size":0,"travel_percent":0,"heat_index":0,"lev_count":0,"heat_count":0},
@@ -499,66 +504,85 @@ def build_heat_data(positions):
 
     for pos in positions:
         asset = pos.get("asset_type","BTC").upper()
-        side  = pos.get("position_type","Long").lower()  # "short" or "long"
+        side  = pos.get("position_type","Long").lower()
         if asset not in ["BTC","ETH","SOL"]:
-            continue  # skip unknown assets
+            continue
         key = f"{asset}_{side}"
 
         partial[key]["collateral"] += pos.get("collateral",0.0)
         partial[key]["value"]      += pos.get("value",0.0)
         partial[key]["size"]       += pos.get("size",0.0)
-
-        # track travel% sum => partial[key]["travel_percent"] += ...
         partial[key]["travel_percent"] += pos.get("current_travel_percent",0.0)
-
-        # track heat => partial[key]["heat_index"] += ...
         partial[key]["heat_index"] += pos.get("heat_index",0.0)
         partial[key]["heat_count"] += 1
 
-        # if you want leverage => partial[key]["lev_count"] => do an average or etc.
-
-    # move partial sums -> structure[asset][side]
-    # e.g. if partial["BTC_short"].size>0 => structure["BTC"]["short"] = dict( ... )
     for combo in partial:
         side = "short" if "short" in combo else "long"
-        a    = "BTC" if "BTC" in combo else "ETH" if "ETH" in combo else "SOL"
-
+        a = "BTC" if "BTC" in combo else "ETH" if "ETH" in combo else "SOL"
         s_count = partial[combo]["size"]
-        if s_count>0:
+        if s_count > 0:
             structure[a][side] = {
                 "asset": a,
                 "collateral": partial[combo]["collateral"],
-                "value":      partial[combo]["value"],
-                "size":       s_count,
-                "travel_percent": partial[combo]["travel_percent"]/(1 if partial[combo]["size"]==0 else partial[combo]["size"])*100, # or do your logic
-                "heat_index": partial[combo]["heat_index"]/(partial[combo]["heat_count"] or 1),
-                "leverage": 0.0  # up to you to calc
+                "value": partial[combo]["value"],
+                "size": s_count,
+                "travel_percent": partial[combo]["travel_percent"] / s_count * 100,
+                "heat_index": partial[combo]["heat_index"] / (partial[combo]["heat_count"] or 1),
+                "leverage": 0.0
             }
 
-    # also fill structure["totals"]["short"] etc.
-    # example:
-    structure["totals"]["short"]["collateral"] = partial["BTC_short"]["collateral"] + partial["ETH_short"]["collateral"] + partial["SOL_short"]["collateral"]
-    structure["totals"]["short"]["value"]      = partial["BTC_short"]["value"]      + partial["ETH_short"]["value"]      + partial["SOL_short"]["value"]
-    structure["totals"]["short"]["size"]       = partial["BTC_short"]["size"]       + partial["ETH_short"]["size"]       + partial["SOL_short"]["size"]
-    # similarly for "long"
+    structure["totals"]["short"]["collateral"] = (
+        partial["BTC_short"]["collateral"]
+        + partial["ETH_short"]["collateral"]
+        + partial["SOL_short"]["collateral"]
+    )
+    structure["totals"]["short"]["value"] = (
+        partial["BTC_short"]["value"]
+        + partial["ETH_short"]["value"]
+        + partial["SOL_short"]["value"]
+    )
+    structure["totals"]["short"]["size"] = (
+        partial["BTC_short"]["size"]
+        + partial["ETH_short"]["size"]
+        + partial["SOL_short"]["size"]
+    )
+
+    structure["totals"]["long"]["collateral"] = (
+        partial["BTC_long"]["collateral"]
+        + partial["ETH_long"]["collateral"]
+        + partial["SOL_long"]["collateral"]
+    )
+    structure["totals"]["long"]["value"] = (
+        partial["BTC_long"]["value"]
+        + partial["ETH_long"]["value"]
+        + partial["SOL_long"]["value"]
+    )
+    structure["totals"]["long"]["size"] = (
+        partial["BTC_long"]["size"]
+        + partial["ETH_long"]["size"]
+        + partial["SOL_long"]["size"]
+    )
 
     return structure
 
-@app.route("/config", methods=["GET", "POST"])
-def system_config():
-    config_data = AppConfig.load("sonic_config.json")
-    if request.method == "POST":
-        new_logging_enabled = (request.form.get("logging_enabled") == "on")
-        config_data.system_config.logging_enabled = new_logging_enabled
-        with open("sonic_config.json", "w") as f:
-            f.write(config_data.json(indent=2))
-        return redirect(url_for("system_config"))
-    return render_template("system_config.html", config=config_data)
+# --------------------------------------------------
+# Audio Tester (NEW)
+# --------------------------------------------------
 
-import os
-from flask import send_file
+# ------------------------
+# Audio Tester -> /audio-tester
+# ------------------------
+@app.route("/audio-tester")
+def audio_tester():
+    """
+    This route renders the 'audio_tester.html' template,
+    which includes your in-browser MP3 playback test card.
+    """
+    return render_template("audio_tester.html")
 
-
+# --------------------------------------------------
+# Database Viewer
+# --------------------------------------------------
 @app.route("/database-viewer")
 def database_viewer():
     conn = sqlite3.connect(DB_PATH)
@@ -577,11 +601,9 @@ def database_viewer():
 
     db_data = {}
     for table in tables:
-        # Get columns
         cur.execute(f"PRAGMA table_info({table})")
         columns = [col["name"] for col in cur.fetchall()]
 
-        # Get rows
         cur.execute(f"SELECT * FROM {table}")
         rows_raw = cur.fetchall()
         rows = [dict(row) for row in rows_raw]
@@ -592,9 +614,11 @@ def database_viewer():
         }
 
     conn.close()
-
-    # Pass to template
     return render_template("database_viewer.html", db_data=db_data)
 
+# --------------------------------------------------
+# Main
+# --------------------------------------------------
 if __name__ == "__main__":
+    # Start the Flask server
     app.run(debug=True, host="0.0.0.0", port=5000)

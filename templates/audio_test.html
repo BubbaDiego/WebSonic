@@ -1,0 +1,61 @@
+{% extends "sonic_admin.html" %}
+
+{% block content %}
+<div class="row">
+  <div class="col-12">
+    <div class="card mb-4">
+      <div class="card-header">
+        <h3 class="card-title">Sound Test</h3>
+      </div>
+      <div class="card-body">
+        <p>This page lets you test in-browser MP3 playback. Make sure your volume is on!</p>
+        
+        <audio
+          id="testAudio"
+          src="{{ url_for('static', filename='sounds/test_alert.mp3') }}"
+          preload="auto"
+        ></audio>
+
+        <button class="btn btn-primary me-2" id="playSoundBtn">
+          <i class="bi bi-play-circle"></i> Play Sound
+        </button>
+        <button class="btn btn-secondary" id="pauseSoundBtn">
+          <i class="bi bi-pause-circle"></i> Pause Sound
+        </button>
+
+        <div class="mt-3">
+          <label for="volumeRange" class="form-label">Volume</label>
+          <input
+            type="range"
+            class="form-range"
+            id="volumeRange"
+            min="0"
+            max="1"
+            step="0.1"
+            value="1.0"
+          />
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.addEventListener("DOMContentLoaded", function() {
+    const audioElem = document.getElementById("testAudio");
+    const playBtn = document.getElementById("playSoundBtn");
+    const pauseBtn = document.getElementById("pauseSoundBtn");
+    const volumeRange = document.getElementById("volumeRange");
+
+    playBtn.addEventListener("click", () => {
+      audioElem.play().catch(err => console.error("Playback failed:", err));
+    });
+    pauseBtn.addEventListener("click", () => {
+      audioElem.pause();
+    });
+    volumeRange.addEventListener("input", () => {
+      audioElem.volume = parseFloat(volumeRange.value);
+    });
+  });
+</script>
+{% endblock %}

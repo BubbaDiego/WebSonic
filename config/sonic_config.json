@@ -1,0 +1,105 @@
+{
+    "system_config": {
+        "sonic_monitor_loop_time": 60,
+        "newspaper_report_time": 1300,
+        "price_monitor_enabled": true,
+        "alert_monitor_enabled": false,
+        "last_price_update_time": "2024-11-09 07:13:09 AM",
+        "num_price_sources": 4,
+        "logging": {
+            "enabled": true,
+            "log_file": "THE_SHIT_LOG.log",
+            "level": "INFO",
+            "console_output": true
+        }
+    },
+    "api_config": {
+        "coinbase_api": {
+            "enabled": "ENABLE",
+            "api_key": "your_coinbase_api_key",
+            "api_secret": "your_coinbase_api_secret"
+        },
+        "coingecko_api": {
+            "enabled": "ENABLE"
+        },
+        "coinmarketcap_api": {
+            "enabled": "ENABLE",
+            "api_key": "your_coinmarketcap_api_key"
+        },
+        "kucoin_api": {
+            "enabled": "ENABLE",
+            "api_key": "your_kucoin_api_key",
+            "api_secret": "your_kucoin_api_secret",
+            "api_passphrase": "your_kucoin_api_passphrase"
+        },
+        "binance_api": {
+            "enabled": "ENABLE",
+            "api_key": "your_binance_api_key",
+            "api_secret": "your_binance_api_secret"
+        }
+    },
+    "notification_config": {
+        "email": {
+            "smtp_server": "smtp.gmail.com",
+            "smtp_port": 587,
+            "smtp_user": "bubba.diego@gmail.com",
+            "smtp_password": "pzix taan afbe igxb",
+            "recipient_email": "bubba.diego@gmail.com"
+        },
+        "sms": {
+            "carrier_gateway": "txt.att.net",
+            "recipient_number": "6199804758"
+        }
+    },
+    "google_drive_config": {
+        "credentials_path": "path/to/credentials.json",
+        "token_path": "path/to/token.json"
+    },
+    "price_config": {
+        "assets": ["BTC", "ETH", "SOL"],
+        "currency": "USD",
+        "fetch_timeout": 10,
+        "backoff": {
+            "max_tries": 5,
+            "factor": 2,
+            "max_time": 60
+        }
+    },
+    "alert_config": {
+        "heat_index_ranges": {
+            "low": [0, 250],
+            "medium": [250, 500],
+            "high": [500, null]
+        },
+        "collateral_ranges": {
+            "low": [0, 1550],
+            "medium": [1550, 5000],
+            "high": [5000, null]
+        },
+        "value_ranges": {
+            "low": [0, 2000],
+            "medium": [2000, 5000],
+            "high": [5000, null]
+        },
+        "size_ranges": {
+            "low": [0, 11100],
+            "medium": [15000, 30000],
+            "high": [30000, null]
+        },
+        "leverage_ranges": {
+            "low": [0, 8],
+            "medium": [8, 10],
+            "high": [10, null]
+        },
+        "liquidation_distance_ranges": {
+            "low": [0, 2],
+            "medium": [2, 5],
+            "high": [5, null]
+        },
+        "travel_percent_ranges": {
+            "low": [500, -25],
+            "medium": [-25, -50],
+            "high": [-50, -99]
+        }
+    }
+}
