@@ -625,6 +625,38 @@ class DataLocker:
             results.append(pos_obj.model_dump())
         return results
 
+    def delete_position(self, position_id: str):
+        """ Delete a position by ID. (Ephemeral approach) """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM positions WHERE id = ?", (position_id,))
+            conn.commit()
+            conn.close()
+            self.logger.debug(f"Deleted position with ID={position_id}")
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error in delete_position: {e}", exc_info=True)
+            raise
+        except Exception as e:
+            self.logger.exception(f"Unexpected error in delete_position: {e}")
+            raise
+
+    def delete_all_positions(self):
+        """ Delete ALL rows in positions. (Ephemeral approach) """
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM positions")
+            conn.commit()
+            conn.close()
+            self.logger.debug("Deleted ALL positions.")
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error in delete_all_positions: {e}", exc_info=True)
+            raise
+        except Exception as e:
+            self.logger.exception(f"Unexpected error in delete_all_positions: {e}")
+            raise
+
     # ----------------------------------------------------------------
     # NEW: If you need the raw row-based version, rename the older one:
     # ----------------------------------------------------------------
@@ -670,18 +702,3 @@ class DataLocker:
             self.logger.exception(f"Unexpected error in update_position_size: {e}")
             raise
 
-    def delete_position(self, position_id: str):
-        """ Delete a position by ID. """
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM positions WHERE id = ?", (position_id,))
-            conn.commit()
-            conn.close()
-            self.logger.debug(f"Deleted position with ID={position_id}")
-        except sqlite3.Error as e:
-            self.logger.error(f"Database error in delete_position: {e}", exc_info=True)
-            raise
-        except Exception as e:
-            self.logger.exception(f"Unexpected error in delete_position: {e}")
-            raise
