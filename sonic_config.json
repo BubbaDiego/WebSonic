@@ -1,64 +1,67 @@
 {
-  "system_config": {
-    "logging_enabled": true,
-    "log_level": "DEBUG",
-    "console_output": true,
-    "log_file": "C:/WebSonic/logs/price_monitor.log",
-    "db_path": "C:/WebSonic/data/mother_brain.db",
-    "price_monitor_enabled": true,
-    "alert_monitor_enabled": true,
-    "sonic_monitor_loop_time": 300,
-    "last_price_update_time": null
-  },
-  "price_config": {
-    "assets": ["BTC", "ETH", "SOL"],
-    "currency": "USD",
-    "cmc_api_key": "c51c0c22-1bf3-4674-86bf-36f39a912d1a"
-  },
-  "api_config": {
-    "coingecko_api_enabled": "ENABLE",
-    "kucoin_api_enabled": "ENABLE",
-    "coinmarketcap_api_enabled": "ENABLE",
-    "coinpaprika_api_enabled": "ENABLE",
-    "binance_api_enabled": "ENABLE",
-    "coinmarketcap_api_key": "c51c0c22-1bf3-4674-86bf-36f39a912d1a",
-    "binance_api_enabled": "DISABLE"
-  },
-  "alert_ranges": {
-    "heat_index_ranges": {
-      "low": 0.0,
-      "medium": 200.0,
-      "high": null
+    "price_config": {
+        "assets": [
+            "BTC",
+            "ETH",
+            "SOL"
+        ],
+        "currency": "USD",
+        "cmc_api_key": "c51c0c22-1bf3-4674-86bf-36f39a912d1a"
     },
-    "collateral_ranges": {
-      "low": 0.0,
-      "medium": 1000.0,
-      "high": null
+    "system_config": {
+        "logging_enabled": true,
+        "log_level": "DEBUG",
+        "console_output": true,
+        "log_file": "C:/WebSonic/logs/price_monitor.log",
+        "db_path": "C:/WebSonic/data/mother_brain.db",
+        "price_monitor_enabled": true,
+        "alert_monitor_enabled": true,
+        "sonic_monitor_loop_time": 300,
+        "last_price_update_time": null
     },
-    "value_ranges": {
-      "low": 0.0,
-      "medium": 2000.0,
-      "high": null
+    "api_config": {
+        "coingecko_api_enabled": "ENABLE",
+        "kucoin_api_enabled": "ENABLE",
+        "coinmarketcap_api_enabled": "ENABLE",
+        "coinpaprika_api_enabled": "ENABLE",
+        "binance_api_enabled": "DISABLE",
+        "coinmarketcap_api_key": "c51c0c22-1bf3-4674-86bf-36f39a912d1a"
     },
-    "size_ranges": {
-      "low": 0.0,
-      "medium": 15000.0,
-      "high": null
-    },
-    "leverage_ranges": {
-      "low": 0.0,
-      "medium": 5.0,
-      "high": null
-    },
-    "liquidation_distance_ranges": {
-      "low": 0.0,
-      "medium": 2.0,
-      "high": null
-    },
-    "travel_percent_ranges": {
-      "low": -50.0,
-      "medium": -20.0,
-      "high": null
+    "alert_ranges": {
+        "heat_index_ranges": {
+            "low": 0.0,
+            "medium": 200.0,
+            "high": null
+        },
+        "collateral_ranges": {
+            "low": 0.0,
+            "medium": 1000.0,
+            "high": null
+        },
+        "value_ranges": {
+            "low": 0.0,
+            "medium": 2000.0,
+            "high": null
+        },
+        "size_ranges": {
+            "low": 0.0,
+            "medium": 15000.0,
+            "high": null
+        },
+        "leverage_ranges": {
+            "low": 0.0,
+            "medium": 5.0,
+            "high": null
+        },
+        "liquidation_distance_ranges": {
+            "low": 0.0,
+            "medium": 2.0,
+            "high": null
+        },
+        "travel_percent_ranges": {
+            "low": -50.0,
+            "medium": -20.0,
+            "high": null
+        }
     }
-  }
 }

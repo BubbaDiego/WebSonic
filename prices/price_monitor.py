@@ -1,4 +1,5 @@
 # prices/price_monitor.py
+
 import asyncio
 import logging
 from typing import Dict, Optional, List
@@ -9,14 +10,14 @@ from prices.coinmarketcap_fetcher import fetch_current_cmc, fetch_historical_cmc
 from prices.coinpaprika_fetcher import fetch_current_coinpaprika
 from prices.binance_fetcher import fetch_current_binance
 
-
-
 logger = logging.getLogger("PriceMonitorLogger")
 
 class PriceMonitor:
-    def __init__(self,
-                 db_path="C:/WebSonic/data/mother_brain.db",
-                 config_path="C:/WebSonic/sonic_config.json"):
+    def __init__(
+        self,
+        db_path="C:/WebSonic/data/mother_brain.db",
+        config_path="C:/WebSonic/sonic_config.json",
+    ):
         self.db_path = db_path
         self.config_path = config_path
 
@@ -29,7 +30,9 @@ class PriceMonitor:
 
         # read config for coinpaprika/binance
         api_cfg = self.config.get("api_config", {})
-        self.coinpaprika_enabled = (api_cfg.get("coinpaprika_api_enabled") == "ENABLE")
+        self.coinpaprika_enabled = (
+            api_cfg.get("coinpaprika_api_enabled") == "ENABLE"
+        )
         self.binance_enabled = (api_cfg.get("binance_api_enabled") == "ENABLE")
 
         # 3) Setup logging
@@ -42,7 +45,9 @@ class PriceMonitor:
         self.cmc_api_key = price_cfg.get("cmc_api_key")  # or from "api_config"
 
         api_cfg = self.config.get("api_config", {})
-        self.coingecko_enabled = (api_cfg.get("coingecko_api_enabled") == "ENABLE")
+        self.coingecko_enabled = (
+            api_cfg.get("coingecko_api_enabled") == "ENABLE"
+        )
         self.cmc_enabled = (api_cfg.get("coinmarketcap_api_enabled") == "ENABLE")
 
     def setup_logging(self):
@@ -59,8 +64,8 @@ class PriceMonitor:
 
             logging.basicConfig(
                 level=log_level,
-                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                handlers=handlers
+                format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                handlers=handlers,
             )
         else:
             logging.basicConfig(level=logging.CRITICAL)
@@ -94,8 +99,6 @@ class PriceMonitor:
         Actually call fetch_current_coingecko, then store results.
         We assume 'assets' are in coingecko 'slug' form or we have a map if needed.
         """
-        # For now, let's assume we have a slug map or we just pass them as slugs
-        # e.g. ["bitcoin", "ethereum"]. If you have a real map, do that here
         slug_map = {
             "BTC": "bitcoin",
             "ETH": "ethereum",
@@ -112,10 +115,8 @@ class PriceMonitor:
 
         logger.info("Fetching Coingecko for assets: %s", slugs)
         cg_data = await fetch_current_coingecko(slugs, self.currency)
-        # cg_data might come back as {"BITCOIN": 12345.67, "ETHEREUM": 2345.67}
-        # If you want them back as BTC/ETH, invert the slug_map:
+
         for slug, price in cg_data.items():
-            # find the symbol
             for k, v in slug_map.items():
                 if v.upper() == slug.upper():
                     sym = k
@@ -124,14 +125,15 @@ class PriceMonitor:
                 sym = slug  # fallback if not found
             self.data_locker.insert_or_update_price(sym, price, "CoinGecko")
 
+        # **Increment the counter for "CoinGecko"**
+        self.data_locker.increment_api_report_counter("CoinGecko")
+
     async def _fetch_and_store_coinpaprika(self):
         logger.info("Fetching CoinPaprika for assets: ...")
-        # we need a map from "BTC" -> "btc-bitcoin", "ETH" -> "eth-ethereum", etc.
         paprika_map = {
             "BTC": "btc-bitcoin",
             "ETH": "eth-ethereum",
-            "SOL": "sol-solana"
-            # etc...
+            "SOL": "sol-solana",
         }
         ids = []
         for sym in self.assets:
@@ -143,26 +145,32 @@ class PriceMonitor:
             return
 
         cp_data = await fetch_current_coinpaprika(ids)
-        # e.g. returns { "BTC": 12345.67, "ETH": 2345.67 }
         for sym, price in cp_data.items():
             self.data_locker.insert_or_update_price(sym, price, "CoinPaprika")
 
+        # **Increment the counter for "CoinPaprika"**
+        self.data_locker.increment_api_report_counter("CoinPaprika")
+
     async def _fetch_and_store_binance(self):
         logger.info("Fetching Binance for assets: ...")
-        # We'll transform "BTC" -> "BTCUSDT", "ETH" -> "ETHUSDT", etc.
         binance_symbols = []
         for sym in self.assets:
             binance_symbols.append(sym.upper() + "USDT")  # naive approach
         bn_data = await fetch_current_binance(binance_symbols)
-        # e.g. returns { "BTC": 12345.67, "ETH": 2345.67 }
         for sym, price in bn_data.items():
             self.data_locker.insert_or_update_price(sym, price, "Binance")
+
+        # **Increment the counter for "Binance"**
+        self.data_locker.increment_api_report_counter("Binance")
 
     async def _fetch_and_store_cmc(self):
         logger.info("Fetching CMC for assets: %s", self.assets)
         cmc_data = await fetch_current_cmc(self.assets, self.currency, self.cmc_api_key)
         for sym, price in cmc_data.items():
             self.data_locker.insert_or_update_price(sym, price, "CoinMarketCap")
+
+        # **Increment the counter for "CoinMarketCap"**
+        self.data_locker.increment_api_report_counter("CoinMarketCap")
 
     async def update_historical_cmc(self, symbol: str, start_date: str, end_date: str):
         """
@@ -172,19 +180,24 @@ class PriceMonitor:
         if not self.cmc_enabled:
             logger.warning("CoinMarketCap is not enabled, skipping historical fetch.")
             return
-        logger.info(f"Fetching historical CMC for {symbol} from {start_date} to {end_date}...")
+        logger.info(
+            f"Fetching historical CMC for {symbol} from {start_date} to {end_date}..."
+        )
 
-        records = await fetch_historical_cmc(symbol, start_date, end_date, self.currency, self.cmc_api_key)
+        records = await fetch_historical_cmc(
+            symbol, start_date, end_date, self.currency, self.cmc_api_key
+        )
         logger.debug(f"Fetched {len(records)} daily records for {symbol} from CMC.")
 
-        # Now store them, e.g.:
         for r in records:
-            # You might have data_locker.insert_historical_ohlc(...) or something similar
-            # We'll just pretend:
             self.data_locker.insert_historical_ohlc(
                 symbol,
                 r["time_open"],
-                r["open"], r["high"], r["low"], r["close"], r["volume"]
+                r["open"],
+                r["high"],
+                r["low"],
+                r["close"],
+                r["volume"],
             )
 
 if __name__ == "__main__":
@@ -193,14 +206,12 @@ if __name__ == "__main__":
     async def main():
         pm = PriceMonitor(
             db_path="C:/WebSonic/data/mother_brain.db",
-            config_path="C:/WebSonic/sonic_config.json"
+            config_path="C:/WebSonic/sonic_config.json",
         )
-        # 1) Init and do real-time update (optional)
         await pm.initialize_monitor()
         await pm.update_prices()
 
-        # 2) Historical fetch from 2024-12-01 to 2025-01-19 for BTC
-        #    This is ~49 days, well within your "up to 12 months" daily range
+        # Example historical:
         start_date = "2024-12-01"
         end_date = "2025-01-19"
         await pm.update_historical_cmc("BTC", start_date, end_date)

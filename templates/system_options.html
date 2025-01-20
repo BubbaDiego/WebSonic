@@ -24,19 +24,12 @@
   <span style="font-size:2rem;">⚙️</span>
 </div>
 
-<!-- 
-  Example: Single "main" form that includes separate 
-  sub-sections for SystemConfig, PriceConfig, etc.
-  If you want separate forms for each section, you can do that instead.
--->
 <form method="POST" action="{{ url_for('system_options') }}" enctype="multipart/form-data">
-  
   <!-- === Card: System Config === -->
   <div class="card">
     <div class="card-header">System Config</div>
     <div class="card-body">
       <div class="row g-3">
-
         <!-- logging_enabled -->
         <div class="col-md-6">
           <label for="logging_enabled" class="form-label fw-bold">
@@ -56,7 +49,6 @@
             </label>
           </div>
         </div>
-
         <!-- log_level -->
         <div class="col-md-6">
           <label for="log_level" class="form-label fw-bold">Log Level</label>
@@ -157,13 +149,9 @@
             value="{{ config.system_config.last_price_update_time or '' }}"
           />
         </div>
-
       </div>
-      <!-- row -->
     </div>
-    <!-- card-body -->
   </div>
-  <!-- /System Config Card -->
 
   <!-- === Card: Price Config === -->
   <div class="card">
@@ -181,7 +169,6 @@
             value="{{ ','.join(config.price_config.assets) }}"
           />
         </div>
-
         <!-- currency -->
         <div class="col-md-6">
           <label for="currency" class="form-label fw-bold">Currency</label>
@@ -193,7 +180,6 @@
             value="{{ config.price_config.currency }}"
           />
         </div>
-
         <!-- fetch_timeout -->
         <div class="col-md-6">
           <label for="fetch_timeout" class="form-label fw-bold">Fetch Timeout (sec)</label>
@@ -236,7 +222,6 @@
             <option value="DISABLE" {% if bae == "DISABLE" %}selected{% endif %}>DISABLE</option>
           </select>
         </div>
-
         <!-- coinmarketcap_api_key -->
         <div class="col-md-6">
           <label for="coinmarketcap_api_key" class="form-label fw-bold">CoinMarketCap API Key</label>
@@ -249,10 +234,26 @@
           />
         </div>
       </div>
+
+      <!-- 
+        Add a row with a "Reset API Counters" button 
+        that triggers a dedicated form action.
+      -->
+      <div class="row g-3 mt-3">
+        <div class="col text-end">
+          <!-- We'll use a button that sets 'action=reset_counters' 
+               so the back end knows we want to reset counters. 
+           -->
+          <button type="submit" class="btn btn-danger fw-bold"
+                  name="action" value="reset_counters">
+            Reset API Report Counters
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 
-  <!-- === Card: Alert Ranges (Example of a few fields) === -->
+  <!-- === Card: Alert Ranges (Example) === -->
   <div class="card">
     <div class="card-header">Alert Ranges</div>
     <div class="card-body">
@@ -315,8 +316,6 @@
         </div>
         <!-- Export button could just be a link or separate form -->
         <div class="col-md-6 text-end">
-          <!-- You can do a dedicated route or the same form 
-               with a hidden field "export_action" if you prefer. -->
           <a
             href="{{ url_for('export_config') }}"
             class="btn btn-outline-primary"
@@ -328,7 +327,7 @@
     </div>
   </div>
 
-  <!-- === Submit Buttons at the bottom === -->
+  <!-- === Save All Changes at the bottom === -->
   <div class="text-end">
     <button type="submit" class="btn btn-success fw-bold">
       Save All Changes

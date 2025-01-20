@@ -174,55 +174,38 @@
   </div>
 
   <!-- RIGHT COLUMN: New "API Status" panel/table -->
-  <div class="col-md-6">
-    <div class="card mb-4" style="background-color: #F0F0F0;">
-      <div class="card-body p-2">
-        <table class="table table-striped w-100 mb-0 api-status-table">
-          <thead>
-            <!-- Title row for “API Status” (light purple) -->
-            <tr class="title-row">
-              <th colspan="4">
-                <i class="fas fa-broadcast-tower"></i> API Status
-              </th>
-            </tr>
-            <!-- Column headers -->
-            <tr class="column-header-row">
-              <th>API</th>
-              <th>Status</th>
-              <th>Last Updated</th>
-              <th>Total Reports</th>
-            </tr>
-          </thead>
-          <tbody>
-            <!-- Example rows; replace with your dynamic code -->
+<div class="col-md-6">
+  <div class="card mb-4" style="background-color: #F0F0F0;">
+    <div class="card-body p-2">
+      <table class="table table-striped w-100 mb-0 api-status-table">
+        <thead>
+          <!-- Title row for “API Status” (light purple) -->
+          <tr class="title-row">
+            <th colspan="4">
+              <i class="fas fa-broadcast-tower"></i> API Status
+            </th>
+          </tr>
+          <!-- Column headers -->
+          <tr class="column-header-row">
+            <th>API</th>
+            <th>Status</th>
+            <th>Last Updated</th>
+            <th>Total Reports</th>
+          </tr>
+        </thead>
+
+        <!-- Only ONE <tbody>, ONE for-loop -->
+        <tbody>
+          {% for row in api_counters %}
             <tr>
-              <td>CoinGecko</td>
+              <td>{{ row.api_name }}</td>
               <td>Online</td>
-              <td>2025-01-19 18:24:22</td>
-              <td>23</td>
+              <td>N/A</td>
+              <td>{{ row.total_reports }}</td>
             </tr>
-            <tr>
-              <td>CoinMarketCap</td>
-              <td>Online</td>
-              <td>2025-01-19 18:24:22</td>
-              <td>42</td>
-            </tr>
-            <tr>
-              <td>CoinPaprika</td>
-              <td>Online</td>
-              <td>2025-01-19 18:24:22</td>
-              <td>15</td>
-            </tr>
-            <!-- Newly added Binance row -->
-            <tr>
-              <td>Binance</td>
-              <td>Online</td>
-              <td>2025-01-19 18:24:22</td>
-              <td>9</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
   </div>
 </div>

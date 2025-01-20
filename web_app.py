@@ -8,6 +8,8 @@ from datetime import datetime
 from typing import List, Dict
 from data.hybrid_config_manager import load_config_hybrid
 
+DB_PATH = "C:/WebSonic/data/mother_brain.db"
+CONFIG_PATH = "C:/WebSonic/sonic_config.json"
 
 from flask import (
     Flask,
@@ -60,14 +62,23 @@ alert_manager = AlertManager(
 # --------------------------------------------------
 # Root route -> Redirect to /positions
 # --------------------------------------------------
+#@app.route("/")
+#def index():
+    #"""
+    #The main root path: we redirect to /positions,
+  #  so the app doesn't start on the audio page by default.
+  #  """
+  #  logger.debug("Reached / (root). Redirecting to /positions.")
+  #  return redirect(url_for("positions"))
+
+
+##############################
+#   Index redirect, etc.
+##############################
 @app.route("/")
 def index():
-    """
-    The main root path: we redirect to /positions,
-    so the app doesn't start on the audio page by default.
-    """
-    logger.debug("Reached / (root). Redirecting to /positions.")
-    return redirect(url_for("positions"))
+    return redirect(url_for("prices"))
+
 
 # --------------------------------------------------
 # Positions
@@ -110,6 +121,36 @@ def aggregate_positions(positions: List[Position]) -> Dict[str, float]:
         "total_value": total_value,
         "total_size": total_size
     }
+
+def reset_api_counters_in_db():
+    """
+    Example function that sets 'total_reports' to 0 in a table named 'api_status_counters'.
+    Modify to match your actual DB schema or config file approach.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE api_status_counters SET total_reports = 0")
+    conn.commit()
+    conn.close()
+
+def load_app_config():
+    """
+    Straightforward approach: load JSON from disk, parse into Pydantic model.
+    """
+    if not os.path.exists(CONFIG_PATH):
+        # If no file, create an empty default or raise an error
+        return AppConfig()  # or some default
+    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return AppConfig(**data)
+
+def save_app_config(config: AppConfig):
+    """
+    Save updated config back to 'sonic_config.json'.
+    """
+    data = config.model_dump()  # Pydantic v2+ approach
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4)
 
 @app.route("/edit-position/<position_id>", methods=["POST"])
 def edit_position(position_id):
@@ -244,90 +285,214 @@ def show_prices():
         recent_prices=prices_data_sorted
     )
 
+def aggregator_positions(partial):
+    structure = {
+        "totals": {
+            "long": {"collateral": 0.0, "value": 0.0, "size": 0.0}
+        }
+    }
+    structure["totals"]["long"]["collateral"] = (
+        partial["BTC_long"]["collateral"]
+        + partial["ETH_long"]["collateral"]
+        + partial["SOL_long"]["collateral"]
+    )
+    structure["totals"]["long"]["value"] = (
+        partial["BTC_long"]["value"]
+        + partial["ETH_long"]["value"]
+        + partial["SOL_long"]["value"]
+    )
+    structure["totals"]["long"]["size"] = (
+        partial["BTC_long"]["size"]
+        + partial["ETH_long"]["size"]
+        + partial["SOL_long"]["size"]
+    )
+    return structure
+
+def get_latest_prices_from_db():
+    # Query each asset for the newest row
+    # Make sure to include last_update_time
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    results = []
+    for asset in ["BTC", "ETH", "SOL"]:
+        row = cur.execute("""
+            SELECT asset_type, current_price, last_update_time
+            FROM prices
+            WHERE asset_type = ?
+            ORDER BY last_update_time DESC
+            LIMIT 1
+        """, (asset,)).fetchone()
+        if row:
+            results.append({
+               "asset_type": row["asset_type"],
+               "current_price": row["current_price"],
+               "last_update_time": row["last_update_time"],  # or _pst
+            })
+        else:
+            results.append({
+               "asset_type": asset,
+               "current_price": 0.0,
+               "last_update_time": "N/A"
+            })
+    return results
+
+def get_recent_prices_from_db(limit=10):
+    """
+    Returns the MOST RECENT `limit` rows from prices table,
+    sorted by last_update_time DESC.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT asset_type, current_price, last_update_time
+        FROM prices
+        ORDER BY last_update_time DESC
+        LIMIT ?
+        """,
+        (limit,)
+    )
+    rows = cur.fetchall()
+    conn.close()
+
+    # Convert to list of dict
+    recent = []
+    for r in rows:
+        recent.append({
+            "asset_type": r["asset_type"],
+            "current_price": r["current_price"],
+            "last_update_time_pst": r["last_update_time"]  # or do your PST conversion
+        })
+    return recent
+
+##############################
+#   /prices route
+##############################
 @app.route("/prices", methods=["GET", "POST"])
 def prices():
     logger.debug("Entered /prices route.")
 
-    # 1) If a POST => handle new price
+    # 1) If POST => handle the “Add New Price” form
     if request.method == "POST":
         asset = request.form.get("asset", "BTC")
-        price_val = float(request.form.get("price", 0.0))
+        raw_price = request.form.get("price", "0.0")
+        price_val = float(raw_price)
+
         data_locker.insert_or_update_price(
             asset_type=asset,
             current_price=price_val,
             source="Manual",
-            timestamp=datetime.now()  # store real time
+            timestamp=datetime.now()
         )
         return redirect(url_for("prices"))
 
-    # 2) GET => read from DB
-    logger.debug("Fetching prices from DB.")
-    prices_data = data_locker.read_prices()
+    # 2) On GET => fetch your top boxes & recent logs
+    # (We’ll re-use the same "top_prices" + "recent_prices" logic you had.)
 
-    # 3) Sort them descending by last_update_time
-    def parse_dt(row):
-        raw_dt = row.get("last_update_time")
-        if not raw_dt:
-            return datetime.min
-        try:
-            return datetime.fromisoformat(raw_dt)
-        except:
-            return datetime.min
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
 
-    prices_data_sorted = sorted(prices_data, key=parse_dt, reverse=True)
-
-    # 4) Convert to PST or local time
-    pst_tz = pytz.timezone("US/Pacific")
-    for row in prices_data_sorted:
-        raw_dt = row.get("last_update_time")
-        if raw_dt:
-            try:
-                dt_obj = datetime.fromisoformat(raw_dt)
-                dt_pst = dt_obj.astimezone(pst_tz)
-                row["last_update_time_pst"] = dt_pst.strftime("%Y-%m-%d %H:%M:%S %Z")
-            except:
-                row["last_update_time_pst"] = "N/A"
+    # — a) Grab the newest row for BTC, ETH, SOL => "top_prices"
+    wanted_assets = ["BTC", "ETH", "SOL"]
+    top_prices = []
+    for asset in wanted_assets:
+        row = cur.execute("""
+            SELECT asset_type, current_price, last_update_time
+              FROM prices
+             WHERE asset_type = ?
+             ORDER BY last_update_time DESC
+             LIMIT 1
+        """, (asset,)).fetchone()
+        if row:
+            top_prices.append({
+                "asset_type": row["asset_type"],
+                "current_price": row["current_price"],
+                "last_update_time_pst": row["last_update_time"]  # will convert below
+            })
         else:
-            row["last_update_time_pst"] = "N/A"
+            top_prices.append({
+                "asset_type": asset,
+                "current_price": 0.0,
+                "last_update_time_pst": None
+            })
 
-    # 5) Distinct newest row for BTC, ETH, SOL:
-    distinct_latest = {}
-    for row in prices_data_sorted:
-        asset_type = row["asset_type"]
-        # The first time we see an asset in descending order is the newest row
-        if asset_type not in distinct_latest:
-            distinct_latest[asset_type] = row
+    # — b) Grab up to 15 most recent overall => "recent_prices"
+    cur.execute("""
+        SELECT asset_type, current_price, last_update_time
+          FROM prices
+         ORDER BY last_update_time DESC
+         LIMIT 15
+    """)
+    recent_rows = cur.fetchall()
+    conn.close()
 
-    # 6) Build top boxes in the order you want
-    top_boxes = []
-    for want_asset in ["BTC", "ETH", "SOL"]:
-        if want_asset in distinct_latest:
-            top_boxes.append(distinct_latest[want_asset])
+    recent_prices = []
+    for r in recent_rows:
+        recent_prices.append({
+            "asset_type": r["asset_type"],
+            "current_price": r["current_price"],
+            "last_update_time": r["last_update_time"]  # for sorting
+        })
 
-    # 7) Render template
+    # 3) Convert last_update_time => PST string
+    pst = pytz.timezone("US/Pacific")
+
+    def convert_to_pststr(iso_str):
+        if not iso_str or iso_str == "N/A":
+            return "N/A"
+        try:
+            dt_obj = datetime.fromisoformat(iso_str)
+            dt_pst = dt_obj.astimezone(pst)
+            return dt_pst.strftime("%Y-%m-%d %H:%M:%S %Z")
+        except:
+            return "N/A"
+
+    # Convert top_prices
+    for t in top_prices:
+        iso = t["last_update_time_pst"]
+        t["last_update_time_pst"] = convert_to_pststr(iso)
+
+    # Convert recent
+    for rp in recent_prices:
+        rp["last_update_time_pst"] = convert_to_pststr(rp["last_update_time"])
+
+    # 4) Load API counters
+    api_counters = data_locker.read_api_counters()
+
+    # 5) Render
     return render_template(
         "prices.html",
-        prices=top_boxes,              # for the 3 big boxes
-        recent_prices=prices_data_sorted  # entire sorted list
+        prices=top_prices,         # for the top boxes
+        recent_prices=recent_prices,  # for the “Recent Prices” table
+        api_counters=api_counters     # for the “API Status” table
     )
 
 
-    distinct_latest = {}
-    for row in prices_data_sorted:
-        asset = row["asset_type"]
-        if asset not in distinct_latest:
-            distinct_latest[asset] = row
+##############################
+#   /update-prices route
+##############################
+@app.route("/update-prices", methods=["POST"])
+def update_prices():
+    """
+    Called by the 'Update Prices' button in 'prices.html'.
+    We'll asynchronously fetch from Coingecko, CMC, etc.
+    """
+    pm = PriceMonitor(db_path=DB_PATH, config_path="C:/WebSonic/sonic_config.json")
+    try:
+        asyncio.run(pm.update_prices())
+    except Exception as e:
+        logger.exception(f"Error updating prices: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
-    top_boxes = []
-    for want_asset in ["BTC", "ETH", "SOL"]:
-        if want_asset in distinct_latest:
-            top_boxes.append(distinct_latest[want_asset])
+    return jsonify({"status": "ok", "message": "Prices updated successfully"})
 
-    return render_template(
-        "prices.html",
-        prices=top_boxes,
-        recent_prices=prices_data_sorted
-    )
+
 
 # --------------------------------------------------
 # Alerts
@@ -340,18 +505,6 @@ def manual_check_alerts():
     except Exception as e:
         return jsonify({"status":"error", "message":str(e)}), 500
 
-@app.route("/update-prices", methods=["POST"])
-def update_prices():
-    logger.debug("Manual price update triggered.")
-    try:
-        pm = PriceMonitor()
-        asyncio.run(pm.initialize_monitor())
-        asyncio.run(pm.update_prices())
-        logger.info("Manual price update succeeded.")
-        return redirect(url_for("prices"))
-    except Exception as e:
-        logger.error(f"Error during manual price update: {e}", exc_info=True)
-        return jsonify({"status":"error", "message":str(e)}), 500
 
 # --------------------------------------------------
 # Alert / System Config
@@ -377,70 +530,62 @@ def alert_options():
     return render_template("alert_options.html", config=config_data)
 
 @app.route("/system-options", methods=["GET", "POST"])
+@app.route("/system-options", methods=["GET", "POST"])
 def system_options():
-    config = AppConfig.load("sonic_config.json")
+    """
+    Displays and updates system options. If user clicks “Reset API Counters”,
+    we call data_locker.reset_api_counters(). Otherwise, we save updated
+    config fields to sonic_config.json.
+    """
+    data_locker = DataLocker(DB_PATH)  # So we can call data_locker.reset_api_counters()
 
     if request.method == "POST":
-        # Possibly handle config file import
-        if "import_file" in request.files:
-            file = request.files["import_file"]
-            if file and file.filename:
-                if file.filename.lower().endswith(".json"):
-                    try:
-                        import_data = json.load(file)
-                        new_config = AppConfig(**import_data)
-                        new_config.save("sonic_config.json")
-                        flash("Config imported successfully!", "success")
-                        return redirect(url_for("system_options"))
-                    except Exception as e:
-                        logger.error(f"Error importing config: {e}", exc_info=True)
-                        flash(f"Error importing config: {e}", "danger")
-                        return redirect(url_for("system_options"))
-                else:
-                    flash("Please upload a valid JSON file.", "warning")
-                    return redirect(url_for("system_options"))
+        # 1) Load existing config from disk (keeping your same approach)
+        config = load_app_config()
 
-        config.system_config.logging_enabled = (request.form.get("logging_enabled") == "on")
-        config.system_config.price_monitor_enabled = (request.form.get("price_monitor_enabled") == "on")
-        config.system_config.alert_monitor_enabled = (request.form.get("alert_monitor_enabled") == "on")
-        config.system_config.log_level = request.form.get("log_level", "DEBUG")
-        config.system_config.db_path = request.form.get("db_path", "")
-        config.system_config.log_file = request.form.get("log_file", "")
-        config.system_config.last_price_update_time = request.form.get("last_price_update_time", None)
+        # 2) Check the form "action" param
+        form_action = request.form.get("action")
+        if form_action == "reset_counters":
+            # If the user clicked the “Reset API Counters” button
+            data_locker.reset_api_counters()  # sets total_reports=0 for each row
+            flash("API report counters have been reset!", "success")
+            return redirect(url_for("system_options"))
 
-        try:
-            loop_time_str = request.form.get("sonic_monitor_loop_time", "300")
-            config.system_config.sonic_monitor_loop_time = int(loop_time_str)
-        except ValueError:
-            flash("Invalid loop time. Using default of 300.", "warning")
-            config.system_config.sonic_monitor_loop_time = 300
+        else:
+            # 3) “Save All Changes” path: parse form fields, update config
+            # NOTE: You can uncomment if you want to handle logging_enabled:
+            # config.system_config.logging_enabled = ("logging_enabled" in request.form)
+            config.system_config.log_level = request.form.get("log_level", "INFO")
+            config.system_config.db_path = request.form.get("db_path", config.system_config.db_path)
+            # etc. parse all the other fields...
 
-        assets_str = request.form.get("assets", "BTC,ETH")
-        config.price_config.assets = [x.strip() for x in assets_str.split(",")]
-        config.price_config.currency = request.form.get("currency", "USD")
+            # For assets:
+            assets_str = request.form.get("assets", "")
+            config.price_config.assets = [a.strip() for a in assets_str.split(",") if a.strip()]
 
-        try:
-            config.price_config.fetch_timeout = int(request.form.get("fetch_timeout", "10"))
-        except ValueError:
-            config.price_config.fetch_timeout = 10
+            # For currency, fetch_timeout...
+            config.price_config.currency = request.form.get("currency", "USD")
+            config.price_config.fetch_timeout = int(request.form.get("fetch_timeout", 10))
 
-        config.api_config.coingecko_api_enabled = request.form.get("coingecko_api_enabled", "ENABLE")
-        config.api_config.binance_api_enabled = request.form.get("binance_api_enabled", "ENABLE")
-        config.api_config.coinmarketcap_api_key = request.form.get("coinmarketcap_api_key", "")
+            # For coingecko/binance enable
+            config.api_config.coingecko_api_enabled = request.form.get("coingecko_api_enabled", "ENABLE")
+            config.api_config.binance_api_enabled = request.form.get("binance_api_enabled", "ENABLE")
 
-        try:
-            config.alert_ranges.heat_index_ranges.low = float(request.form.get("heat_index_low", "0.0"))
-            config.alert_ranges.heat_index_ranges.medium = float(request.form.get("heat_index_medium", "200.0"))
-            hi_high = request.form.get("heat_index_high", "")
-            config.alert_ranges.heat_index_ranges.high = float(hi_high) if hi_high else None
-        except ValueError:
-            pass
+            # For coinmarketcap key
+            config.api_config.coinmarketcap_api_key = request.form.get("coinmarketcap_api_key", "")
 
-        config.save("sonic_config.json")
-        flash("System options saved!", "success")
-        return redirect(url_for("system_options"))
+            # ... handle alert ranges, import_file, etc. if needed
 
+            # 4) Save updated config
+            save_app_config(config)
+
+            flash("System options saved!", "success")
+            return redirect(url_for("system_options"))
+
+    # GET request: just load the config and render
+    config = load_app_config()
     return render_template("system_options.html", config=config)
+
 
 @app.route("/export-config")
 def export_config():

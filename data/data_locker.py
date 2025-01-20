@@ -29,13 +29,12 @@ class DataLocker:
     def _initialize_database(self):
         """
         Initializes the database by creating necessary tables if they do not exist.
-        Updated so 'heat_index' and 'current_heat_index' are REAL (floats) with default 0.0.
         """
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            # PRICES TABLE: multiple rows per asset
+            # PRICES TABLE
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS prices (
                     id TEXT PRIMARY KEY,
@@ -48,8 +47,7 @@ class DataLocker:
                 )
             """)
 
-            # POSITIONS TABLE
-            # Adjust columns to allow fractional heat_index, default them to 0.0
+            # POSITIONS TABLE (replace the dots with real column definitions)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS positions (
                     id TEXT PRIMARY KEY,
@@ -73,7 +71,7 @@ class DataLocker:
                 )
             """)
 
-            # ALERTS TABLE
+            # ALERTS TABLE (again, remove or replace the dots)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS alerts (
                     id TEXT PRIMARY KEY,
@@ -92,14 +90,20 @@ class DataLocker:
                 )
             """)
 
+            # NEW TABLE: API STATUS COUNTERS
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS api_status_counters (
+                    api_name TEXT PRIMARY KEY,
+                    total_reports INTEGER NOT NULL DEFAULT 0
+                )
+            """)
+
             conn.commit()
             conn.close()
-            #self.logger.debug("Database initialized and tables ensured.")
 
         except sqlite3.Error as e:
             self.logger.error(f"Error initializing database: {e}", exc_info=True)
             raise
-
     @classmethod
     def get_instance(cls, db_path: str) -> 'DataLocker':
         """
@@ -128,6 +132,50 @@ class DataLocker:
     # ----------------------------------------------------------------
     # PRICES (Multi-row, storing historical data)
     # ----------------------------------------------------------------
+
+    def read_api_counters(self) -> List[dict]:
+        """
+        Returns all rows from `api_status_counters` as a list of dicts
+        with keys: api_name and total_reports.
+        """
+        self._init_sqlite_if_needed()
+        self.cursor.execute("SELECT api_name, total_reports FROM api_status_counters ORDER BY api_name ASC")
+        rows = self.cursor.fetchall()
+        results = []
+        for r in rows:
+            results.append({
+                "api_name": r["api_name"],
+                "total_reports": r["total_reports"]
+            })
+        return results
+
+    def reset_api_counters(self):
+        """
+        Sets total_reports=0 for every row in api_status_counters.
+        """
+        self._init_sqlite_if_needed()
+        self.cursor.execute("UPDATE api_status_counters SET total_reports = 0")
+        self.conn.commit()
+
+    def increment_api_report_counter(self, api_name: str):
+        """
+        Increments total_reports for api_name by 1 (inserting row if needed).
+        """
+        self._init_sqlite_if_needed()
+        self.cursor.execute("SELECT total_reports FROM api_status_counters WHERE api_name = ?", (api_name,))
+        row = self.cursor.fetchone()
+        if row is None:
+            self.cursor.execute("""
+                INSERT INTO api_status_counters (api_name, total_reports)
+                VALUES (?, 1)
+            """, (api_name,))
+        else:
+            self.cursor.execute("""
+                UPDATE api_status_counters
+                   SET total_reports = total_reports + 1
+                 WHERE api_name = ?
+            """, (api_name,))
+        self.conn.commit()
 
     def insert_price(self, price: Price):
         """
