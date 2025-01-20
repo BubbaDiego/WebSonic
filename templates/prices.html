@@ -20,14 +20,23 @@
   .recent-prices-table.table-striped tbody tr:nth-of-type(odd) {
     background-color: rgba(0, 0, 0, 0.05);
   }
+
+  /* Light purple background for the "title-row" in BOTH tables */
   .recent-prices-table thead tr.title-row,
-  .recent-prices-table thead tr.column-header-row {
-    background-color: #e5ffe5 !important;
+  .api-status-table thead tr.title-row {
+    background-color: #f0e5ff !important; /* Light purple */
   }
   .recent-prices-table thead tr.title-row th,
-  .recent-prices-table thead tr.column-header-row th {
+  .api-status-table thead tr.title-row th {
     font-weight: bold;
   }
+
+  /* Column header row can stay as is or also get purple if you prefer:
+  .recent-prices-table thead tr.column-header-row,
+  .api-status-table thead tr.column-header-row {
+    background-color: #f0e5ff !important; 
+  }
+  */
 
   /* Add Price Card styling */
   .card.add-price {
@@ -42,7 +51,7 @@
 <!-- ====== SECTION 1: Title + Update Button + Boxes ====== -->
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h2 class="text-dark mb-0">Prices</h2>
-  <!-- POST to /update_prices (we’ll intercept it with JS so we do not remove anything) -->
+  <!-- POST to /update_prices -->
   <form method="POST" action="{{ url_for('update_prices') }}" id="updatePricesForm">
     <button type="submit" class="btn btn-success">Update Prices</button>
   </form>
@@ -81,7 +90,8 @@
       </div>
       <div class="card-body text-center">
         <div class="display-4 mb-2">
-          {{ p.current_price }}
+          <!-- Round to 2 decimals -->
+          {{ p.current_price|round(2) }}
         </div>
         <small class="text-muted">
           Last Updated: {{ p.last_update_time_pst or "N/A" }}
@@ -92,79 +102,131 @@
   {% endfor %}
 </div>
 
-<!-- ====== SECTION 2: “Recent Prices” Table (historical log) ====== -->
-
-{% if recent_prices is not defined %}
-  {% set recent_prices = [] %}
-{% endif %}
-
-<div class="card mb-4" style="background-color: #F0F0F0;">
-  <div class="card-body p-2">
-    <table class="table table-striped recent-prices-table w-100 mb-0">
-      <thead>
-        <!-- Title row with “Recent Prices” & pagination -->
-        <tr class="title-row">
-          <th colspan="2">Recent Prices</th>
-          <th class="text-end">
-            <!-- Pagination UI placeholder if you want real pagination later -->
-            <nav>
-              <ul class="pagination justify-content-end m-0">
-                <li class="page-item disabled">
-                  <a class="page-link" href="#" tabindex="-1">«</a>
-                </li>
-                <li class="page-item active"><a class="page-link" href="#">1</a></li>
-                <li class="page-item"><a class="page-link" href="#">2</a></li>
-                <li class="page-item"><a class="page-link" href="#">3</a></li>
-                <li class="page-item"><a class="page-link" href="#">»</a></li>
-              </ul>
-            </nav>
-          </th>
-        </tr>
-        <!-- Column headers row -->
-        <tr class="column-header-row">
-          <th>Asset</th>
-          <th>Update Time</th>
-          <th>Price</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for rp in recent_prices[::-1][:10] %}
-        <tr>
-          <!-- Keep your existing display. Just add the if/else for nicer labels. -->
-          <td>
-            {% if rp.asset_type in ["BTC", "Bitcoin"] %}
-              <img src="/static/images/btc_logo.png" alt="BTC"
-                   style="width:20px; height:20px; margin-right:5px;">
-            {% elif rp.asset_type in ["ETH", "Ethereum"] %}
-              <img src="/static/images/eth_logo.png" alt="ETH"
-                   style="width:20px; height:20px; margin-right:5px;">
-            {% elif rp.asset_type in ["SOL", "Solana"] %}
-              <img src="/static/images/sol_logo.png" alt="SOL"
-                   style="width:20px; height:20px; margin-right:5px;">
+<!-- ====== SECTION 2: MAIN ROW with "Recent Prices" on LEFT, "API Status" on RIGHT ====== -->
+<div class="row">
+  <!-- LEFT COLUMN: Existing "Recent Prices" card -->
+  <div class="col-md-6">
+    <div class="card mb-4" style="background-color: #F0F0F0;">
+      <div class="card-body p-2">
+        <table class="table table-striped recent-prices-table w-100 mb-0">
+          <thead>
+            <!-- Title row with “Recent Prices” & pagination -->
+            <tr class="title-row">
+              <th colspan="2">Recent Prices</th>
+              <th class="text-end">
+                <!-- Pagination UI placeholder if you want real pagination later -->
+                <nav>
+                  <ul class="pagination justify-content-end m-0">
+                    <li class="page-item disabled">
+                      <a class="page-link" href="#" tabindex="-1">«</a>
+                    </li>
+                    <li class="page-item active"><a class="page-link" href="#">1</a></li>
+                    <li class="page-item"><a class="page-link" href="#">2</a></li>
+                    <li class="page-item"><a class="page-link" href="#">3</a></li>
+                    <li class="page-item"><a class="page-link" href="#">»</a></li>
+                  </ul>
+                </nav>
+              </th>
+            </tr>
+            <!-- Column headers row -->
+            <tr class="column-header-row">
+              <th>Asset</th>
+              <th>Update Time</th>
+              <th>Price</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if recent_prices is not defined %}
+              {% set recent_prices = [] %}
             {% endif %}
+            {% for rp in recent_prices[::-1][:10] %}
+            <tr>
+              <td>
+                {% if rp.asset_type in ["BTC", "Bitcoin"] %}
+                  <img src="/static/images/btc_logo.png" alt="BTC"
+                       style="width:20px; height:20px; margin-right:5px;">
+                {% elif rp.asset_type in ["ETH", "Ethereum"] %}
+                  <img src="/static/images/eth_logo.png" alt="ETH"
+                       style="width:20px; height:20px; margin-right:5px;">
+                {% elif rp.asset_type in ["SOL", "Solana"] %}
+                  <img src="/static/images/sol_logo.png" alt="SOL"
+                       style="width:20px; height:20px; margin-right:5px;">
+                {% endif %}
+                <span style="display: none;">{{ rp.asset_type }}</span>
+                {% if rp.asset_type == "BTC" or rp.asset_type == "AssetType.BTC" %}
+                  <span>Bitcoin</span>
+                {% elif rp.asset_type == "ETH" or rp.asset_type == "AssetType.ETH" %}
+                  <span>Ethereum</span>
+                {% elif rp.asset_type == "SOL" or rp.asset_type == "AssetType.SOL" %}
+                  <span>Solana</span>
+                {% else %}
+                  <span>{{ rp.asset_type }}</span>
+                {% endif %}
+              </td>
+              <td>{{ rp.last_update_time_pst or "N/A" }}</td>
+              <td>{{ rp.current_price|round(2) }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 
-            <!-- Original line, hidden: -->
-            <span style="display: none;">{{ rp.asset_type }}</span>
-
-            <!-- Friendly label: -->
-            {% if rp.asset_type == "BTC" or rp.asset_type == "AssetType.BTC" %}
-              <span>Bitcoin</span>
-            {% elif rp.asset_type == "ETH" or rp.asset_type == "AssetType.ETH" %}
-              <span>Ethereum</span>
-            {% elif rp.asset_type == "SOL" or rp.asset_type == "AssetType.SOL" %}
-              <span>Solana</span>
-            {% else %}
-              <span>{{ rp.asset_type }}</span>
-            {% endif %}
-          </td>
-          <td>{{ rp.last_update_time_pst or "N/A" }}</td>
-          <td>{{ rp.current_price }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <!-- RIGHT COLUMN: New "API Status" panel/table -->
+  <div class="col-md-6">
+    <div class="card mb-4" style="background-color: #F0F0F0;">
+      <div class="card-body p-2">
+        <table class="table table-striped w-100 mb-0 api-status-table">
+          <thead>
+            <!-- Title row for “API Status” (light purple) -->
+            <tr class="title-row">
+              <th colspan="4">
+                <i class="fas fa-broadcast-tower"></i> API Status
+              </th>
+            </tr>
+            <!-- Column headers -->
+            <tr class="column-header-row">
+              <th>API</th>
+              <th>Status</th>
+              <th>Last Updated</th>
+              <th>Total Reports</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Example rows; replace with your dynamic code -->
+            <tr>
+              <td>CoinGecko</td>
+              <td>Online</td>
+              <td>2025-01-19 18:24:22</td>
+              <td>23</td>
+            </tr>
+            <tr>
+              <td>CoinMarketCap</td>
+              <td>Online</td>
+              <td>2025-01-19 18:24:22</td>
+              <td>42</td>
+            </tr>
+            <tr>
+              <td>CoinPaprika</td>
+              <td>Online</td>
+              <td>2025-01-19 18:24:22</td>
+              <td>15</td>
+            </tr>
+            <!-- Newly added Binance row -->
+            <tr>
+              <td>Binance</td>
+              <td>Online</td>
+              <td>2025-01-19 18:24:22</td>
+              <td>9</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </div>
+<!-- /row for recent-prices + api-status -->
 
 <!-- ====== SECTION 3: Add New Price Panel ====== -->
 <div class="card add-price">
@@ -214,7 +276,7 @@
         .then(res => res.json())
         .then(data => {
           console.log('Update Prices response:', data);
-          // After the JSON success message, reload the page to see new data:
+          // After success, reload the page to see new data:
           window.location.reload();
         })
         .catch(err => console.error('Error updating prices:', err));
