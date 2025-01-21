@@ -83,38 +83,17 @@ def index():
 # --------------------------------------------------
 # Positions
 # --------------------------------------------------
-@app.route("/positions")
-def positions():
-    logger.debug("Entered /positions route.")
-    if request.method == "POST":
-        # For example, handle form submissions to create/edit positions
-        return redirect(url_for("positions"))
 
-    # GET => fetch from DB
-    positions_data = data_locker.get_positions()  # returns List[Position]
-    prices_data = data_locker.get_prices()        # returns List[Price]
 
-    logger.debug(f"Fetched {len(positions_data)} positions, {len(prices_data)} prices.")
-
-    price_map = {pr.asset_type.value: pr.current_price for pr in prices_data}
-    totals = aggregate_positions(positions_data)
-
-    return render_template(
-        "positions.html",
-        positions=positions_data,
-        price_map=price_map,
-        totals=totals
-    )
-
-def aggregate_positions(positions: List[Position]) -> Dict[str, float]:
+def aggregate_positions_dicts(positions: List[dict]) -> Dict[str, float]:
     total_collateral = 0.0
     total_value = 0.0
     total_size = 0.0
 
     for pos in positions:
-        total_collateral += pos.collateral
-        total_value += pos.value
-        total_size += pos.size
+        total_collateral += pos.get("collateral", 0.0)
+        total_value += pos.get("value", 0.0)
+        total_size += pos.get("size", 0.0)
 
     return {
         "total_collateral": total_collateral,
@@ -196,31 +175,23 @@ def delete_all_positions():
 
 @app.route("/upload-positions", methods=["POST"])
 def upload_positions():
-    app.logger.info("upload_positions route called!")
     try:
         if "file" not in request.files:
-            return jsonify({"error": "No file part in the request"}), 400
-
+            return jsonify({"error": "No file part in request"}), 400
         file = request.files["file"]
         if not file:
             return jsonify({"error": "Empty file"}), 400
 
         file_contents = file.read().decode("utf-8")
-
-        # Check if file_contents is empty
         if not file_contents.strip():
             return jsonify({"error": "Uploaded file is empty"}), 400
 
-        positions_data = json.loads(file_contents)  # This can raise JSONDecodeError
-        # Now do your DB inserts using positions_data...
-        for pos_dict in positions_data:
-             data_locker.create_position(Position(**pos_dict))
+        positions_list = json.loads(file_contents)  # list of dict
+        for pos_dict in positions_list:
+            data_locker.create_position(pos_dict)  # ephemeral DB insert
 
         return jsonify({"message": "Positions uploaded successfully"}), 200
 
-    except json.JSONDecodeError as je:
-        app.logger.error(f"Invalid JSON data: {je}", exc_info=True)
-        return jsonify({"error": "Invalid JSON in uploaded file"}), 400
     except Exception as e:
         app.logger.error(f"Error uploading positions: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
@@ -263,28 +234,29 @@ def show_prices():
         recent_prices=prices_data_sorted
     )
 
-def aggregator_positions(partial):
-    structure = {
-        "totals": {
-            "long": {"collateral": 0.0, "value": 0.0, "size": 0.0}
-        }
+@app.route("/positions")
+def positions():
+    positions_data = data_locker.read_positions()  # list of dict
+    # aggregator if you want
+    totals = aggregator_positions_dict(positions_data)
+    # pass them to the template
+    return render_template("positions.html", positions=positions_data, totals=totals)
+
+
+def aggregator_positions_dict(positions: List[dict]) -> dict:
+    total_collateral = 0.0
+    total_value = 0.0
+    total_size = 0.0
+    for pos in positions:
+        total_collateral += pos.get("collateral", 0.0)
+        total_value      += pos.get("value", 0.0)
+        total_size       += pos.get("size", 0.0)
+
+    return {
+        "total_collateral": total_collateral,
+        "total_value": total_value,
+        "total_size": total_size
     }
-    structure["totals"]["long"]["collateral"] = (
-        partial["BTC_long"]["collateral"]
-        + partial["ETH_long"]["collateral"]
-        + partial["SOL_long"]["collateral"]
-    )
-    structure["totals"]["long"]["value"] = (
-        partial["BTC_long"]["value"]
-        + partial["ETH_long"]["value"]
-        + partial["SOL_long"]["value"]
-    )
-    structure["totals"]["long"]["size"] = (
-        partial["BTC_long"]["size"]
-        + partial["ETH_long"]["size"]
-        + partial["SOL_long"]["size"]
-    )
-    return structure
 
 def get_latest_prices_from_db():
     # Query each asset for the newest row
@@ -596,109 +568,48 @@ def export_config():
 def heat():
     logger.debug("Entered /heat route.")
     try:
+        # read positions from DB as dict
         positions_data = data_locker.read_positions()
-        positions_data = calc_services.prepare_positions_for_display(positions_data)
-        heat_data = build_heat_data(positions_data) or {}
-        return render_template("heat.html", heat_data=heat_data, totals={})
+
+        # build the big dictionary
+        heat_data = build_heat_data(positions_data)  # returns the structure
+
+        # Pass it to your template
+        return render_template("heat.html", heat_data=heat_data)
     except Exception as e:
         logger.error(f"Error generating heat page: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 def build_heat_data(positions):
     structure = {
-        "BTC": {"short": None, "long": None},
-        "ETH": {"short": None, "long": None},
-        "SOL": {"short": None, "long": None},
-        "totals": {
-            "short": {
-                "asset": "Short",
-                "collateral": 0.0,
-                "value": 0.0,
-                "leverage": 0.0,
-                "travel_percent": 0.0,
-                "heat_index": 0.0,
-                "size": 0.0
-            },
-            "long": {
-                "asset": "Long",
-                "collateral": 0.0,
-                "value": 0.0,
-                "leverage": 0.0,
-                "travel_percent": 0.0,
-                "heat_index": 0.0,
-                "size": 0.0
-            }
-        }
-    }
-    partial = {
-        "BTC_short": {"asset":"BTC","collateral":0,"value":0,"size":0,"travel_percent":0,"heat_index":0,"lev_count":0,"heat_count":0},
-        "BTC_long":  {"asset":"BTC","collateral":0,"value":0,"size":0,"travel_percent":0,"heat_index":0,"lev_count":0,"heat_count":0},
-        "ETH_short": {"asset":"ETH","collateral":0,"value":0,"size":0,"travel_percent":0,"heat_index":0,"lev_count":0,"heat_count":0},
-        "ETH_long":  {"asset":"ETH","collateral":0,"value":0,"size":0,"travel_percent":0,"heat_index":0,"lev_count":0,"heat_count":0},
-        "SOL_short": {"asset":"SOL","collateral":0,"value":0,"size":0,"travel_percent":0,"heat_index":0,"lev_count":0,"heat_count":0},
-        "SOL_long":  {"asset":"SOL","collateral":0,"value":0,"size":0,"travel_percent":0,"heat_index":0,"lev_count":0,"heat_count":0},
+       "BTC":  {"short": {}, "long": {}},
+       "ETH":  {"short": {}, "long": {}},
+       "SOL":  {"short": {}, "long": {}},
+       "totals": {
+           "short": {
+               "asset": "Short",
+               "collateral": 0.0,
+               "value": 0.0,
+               "leverage": 0.0,
+               "travel_percent": 0.0,
+               "heat_index": 0.0,
+               "size": 0.0
+           },
+           "long": {
+               "asset": "Long",
+               "collateral": 0.0,
+               "value": 0.0,
+               "leverage": 0.0,
+               "travel_percent": 0.0,
+               "heat_index": 0.0,
+               "size": 0.0
+           }
+       }
     }
 
-    for pos in positions:
-        asset = pos.get("asset_type","BTC").upper()
-        side  = pos.get("position_type","Long").lower()
-        if asset not in ["BTC","ETH","SOL"]:
-            continue
-        key = f"{asset}_{side}"
-
-        partial[key]["collateral"] += pos.get("collateral",0.0)
-        partial[key]["value"]      += pos.get("value",0.0)
-        partial[key]["size"]       += pos.get("size",0.0)
-        partial[key]["travel_percent"] += pos.get("current_travel_percent",0.0)
-        partial[key]["heat_index"] += pos.get("heat_index",0.0)
-        partial[key]["heat_count"] += 1
-
-    for combo in partial:
-        side = "short" if "short" in combo else "long"
-        a = "BTC" if "BTC" in combo else "ETH" if "ETH" in combo else "SOL"
-        s_count = partial[combo]["size"]
-        if s_count > 0:
-            structure[a][side] = {
-                "asset": a,
-                "collateral": partial[combo]["collateral"],
-                "value": partial[combo]["value"],
-                "size": s_count,
-                "travel_percent": partial[combo]["travel_percent"] / s_count * 100,
-                "heat_index": partial[combo]["heat_index"] / (partial[combo]["heat_count"] or 1),
-                "leverage": 0.0
-            }
-
-    structure["totals"]["short"]["collateral"] = (
-        partial["BTC_short"]["collateral"]
-        + partial["ETH_short"]["collateral"]
-        + partial["SOL_short"]["collateral"]
-    )
-    structure["totals"]["short"]["value"] = (
-        partial["BTC_short"]["value"]
-        + partial["ETH_short"]["value"]
-        + partial["SOL_short"]["value"]
-    )
-    structure["totals"]["short"]["size"] = (
-        partial["BTC_short"]["size"]
-        + partial["ETH_short"]["size"]
-        + partial["SOL_short"]["size"]
-    )
-
-    structure["totals"]["long"]["collateral"] = (
-        partial["BTC_long"]["collateral"]
-        + partial["ETH_long"]["collateral"]
-        + partial["SOL_long"]["collateral"]
-    )
-    structure["totals"]["long"]["value"] = (
-        partial["BTC_long"]["value"]
-        + partial["ETH_long"]["value"]
-        + partial["SOL_long"]["value"]
-    )
-    structure["totals"]["long"]["size"] = (
-        partial["BTC_long"]["size"]
-        + partial["ETH_long"]["size"]
-        + partial["SOL_long"]["size"]
-    )
+    # For each position, fill structure[asset][side] if it exists
+    # If you have data for "BTC_short", set structure["BTC"]["short"] = {...fields...}
+    # If there's no data for short => we just leave it as {}, not None
 
     return structure
 

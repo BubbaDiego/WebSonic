@@ -4,7 +4,7 @@ from data.models import Price, Alert, Position, AssetType, Status
 from typing import List, Dict, Optional
 from datetime import datetime
 from uuid import uuid4
-from pydantic import ValidationError
+#from pydantic import ValidationError
 
 class DataLocker:
     """
@@ -205,50 +205,39 @@ class DataLocker:
         self.conn.commit()
         self.logger.debug(f"Incremented API report counter for {api_name}, set last_updated={now_str}.")
 
-    def insert_price(self, price: Price):
+    def insert_price(self, price_dict: dict):
         """
-        Inserts a NEW row for this Price. We'll do a lookup for the last row (if any)
-        to fill 'previous_price' and 'previous_update_time' automatically,
-        unless you supply them in the Price object yourself.
+        Inserts a new price row, providing defaults for any missing fields
+        from the old Pydantic 'Price' model.
         """
         try:
-            price_dict = price.model_dump()
+            from uuid import uuid4
+            from datetime import datetime
 
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-
-            # 1) Find the last row for this asset
-            cursor.execute("""
-                SELECT current_price, last_update_time
-                  FROM prices
-                 WHERE asset_type = ?
-                 ORDER BY last_update_time DESC
-                 LIMIT 1
-            """, (price.asset_type.value,))
-            last_row = cursor.fetchone()
-
-            if last_row:
-                if price_dict["previous_price"] == 0.0:
-                    price_dict["previous_price"] = float(last_row["current_price"])
-                if not price_dict["previous_update_time"]:
-                    price_dict["previous_update_time"] = last_row["last_update_time"]
-            else:
-                # no prior row for this asset
-                if price_dict["previous_price"] == 0.0:
-                    price_dict["previous_price"] = 0.0
-                if not price_dict["previous_update_time"]:
-                    price_dict["previous_update_time"] = None
-
-            # 2) Assign an id if none given
-            if not price_dict.get("id"):
+            if "id" not in price_dict:
                 price_dict["id"] = str(uuid4())
 
-            # 3) If last_update_time is missing, set it
-            if not price_dict.get("last_update_time"):
-                price_dict["last_update_time"] = datetime.now()
+            if "asset_type" not in price_dict:
+                price_dict["asset_type"] = "BTC"
 
-            # Insert
+            if "current_price" not in price_dict:
+                price_dict["current_price"] = 1.0  # or 0.0 if you prefer
+            # The model says 'gt=0', but if you're not using Pydantic, you can do what you like
+
+            if "previous_price" not in price_dict:
+                price_dict["previous_price"] = 0.0
+
+            if "last_update_time" not in price_dict:
+                price_dict["last_update_time"] = datetime.now().isoformat()
+
+            if "previous_update_time" not in price_dict:
+                price_dict["previous_update_time"] = None
+
+            if "source" not in price_dict:
+                price_dict["source"] = "Manual"
+
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO prices (
                     id,
@@ -263,26 +252,11 @@ class DataLocker:
                     :id, :asset_type, :current_price, :previous_price,
                     :last_update_time, :previous_update_time, :source
                 )
-            """, {
-                "id": price_dict["id"],
-                "asset_type": price.asset_type.value,
-                "current_price": price_dict["current_price"],
-                "previous_price": price_dict["previous_price"],
-                "last_update_time": price_dict["last_update_time"],
-                "previous_update_time": price_dict["previous_update_time"],
-                "source": price_dict["source"].value
-            })
+            """, price_dict)
             conn.commit()
             conn.close()
 
-            self.logger.debug(f"Inserted price row for asset={price.asset_type}, id={price_dict['id']}")
-
-        except ValidationError as ve:
-            self.logger.error(f"Price validation error: {ve.json()}")
-            raise
-        except sqlite3.Error as e:
-            self.logger.error(f"Database error during insert_price: {e}", exc_info=True)
-            raise
+            self.logger.debug(f"Inserted price row with ID={price_dict['id']}")
         except Exception as e:
             self.logger.exception(f"Unexpected error in insert_price: {e}")
             raise
@@ -334,13 +308,34 @@ class DataLocker:
             self.logger.exception(f"Unexpected error in get_prices: {e}")
             return []
 
-    def read_prices(self, asset_type: Optional[AssetType] = None) -> List[dict]:
+    def read_positions(self) -> List[dict]:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM positions")
+        rows = cursor.fetchall()
+        conn.close()
+
+        results = []
+        for r in rows:
+            results.append(dict(r))
+        return results
+
+    def read_prices(self) -> List[dict]:
         """
-        Legacy method returning a list of dicts, similar to older code.
-        Internally calls get_prices() which returns [Price].
+        Returns all rows from `prices` as a list of plain dictionaries.
         """
-        prices = self.get_prices(asset_type)
-        return [p.model_dump() for p in prices]
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM prices ORDER BY last_update_time DESC")
+        rows = cursor.fetchall()
+        conn.close()
+
+        results = []
+        for row in rows:
+            results.append(dict(row))
+        return results
 
     def get_latest_price(self, asset_type: AssetType) -> Optional[Price]:
         """
@@ -552,11 +547,72 @@ class DataLocker:
     # POSITIONS CRUD
     # ----------------------------------------------------------------
 
-    def create_position(self, position: Position):
+    def create_position(self, pos_dict: dict):
+        """
+        Inserts a new position row using ephemeral approach.
+        We fill in defaults for any missing fields, matching
+        all the fields from the old Pydantic 'Position' model.
+        """
         try:
-            # No second validation needed; it's already done
-            pos_data = position.model_dump()
+            # 1) Provide defaults for missing fields
+            from uuid import uuid4
+            from datetime import datetime
 
+            if "id" not in pos_dict:
+                pos_dict["id"] = str(uuid4())
+
+            if "asset_type" not in pos_dict:
+                pos_dict["asset_type"] = "BTC"  # or some default
+
+            if "position_type" not in pos_dict:
+                pos_dict["position_type"] = "LONG"
+
+            if "entry_price" not in pos_dict:
+                pos_dict["entry_price"] = 0.0
+
+            if "liquidation_price" not in pos_dict:
+                pos_dict["liquidation_price"] = 0.0
+
+            if "current_travel_percent" not in pos_dict:
+                pos_dict["current_travel_percent"] = 0.0
+
+            if "value" not in pos_dict:
+                pos_dict["value"] = 0.0
+
+            if "collateral" not in pos_dict:
+                pos_dict["collateral"] = 0.0
+
+            if "size" not in pos_dict:
+                pos_dict["size"] = 0.0
+
+            if "leverage" not in pos_dict:
+                pos_dict["leverage"] = 0.0
+
+            if "wallet" not in pos_dict:
+                pos_dict["wallet"] = "Default"
+
+            if "last_updated" not in pos_dict:
+                pos_dict["last_updated"] = datetime.now().isoformat()
+
+            if "alert_reference_id" not in pos_dict:
+                pos_dict["alert_reference_id"] = None
+
+            if "hedge_buddy_id" not in pos_dict:
+                pos_dict["hedge_buddy_id"] = None
+
+            if "current_price" not in pos_dict:
+                pos_dict["current_price"] = 0.0
+
+            if "liquidation_distance" not in pos_dict:
+                pos_dict["liquidation_distance"] = None
+
+            if "heat_index" not in pos_dict:
+                pos_dict["heat_index"] = 0.0
+
+            if "current_heat_index" not in pos_dict:
+                pos_dict["current_heat_index"] = 0.0
+
+            # 2) Insert ephemeral
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
             cursor.execute("""
@@ -574,18 +630,18 @@ class DataLocker:
                     :alert_reference_id, :hedge_buddy_id, :current_price,
                     :liquidation_distance, :heat_index, :current_heat_index
                 )
-            """, pos_data)
+            """, pos_dict)
             conn.commit()
             conn.close()
 
-            self.logger.debug(f"Created position with ID={pos_data['id']}")
+            self.logger.debug(f"Created position with ID={pos_dict['id']}")
         except Exception as e:
             self.logger.exception(f"Unexpected error in create_position: {e}")
             raise
 
-    def get_positions(self) -> List[Position]:
+    def get_positions(self) -> List[dict]:
         """
-        Returns all positions as a list of Position objects.
+        Returns all positions as a list of plain dictionaries.
         """
         try:
             conn = sqlite3.connect(self.db_path)
@@ -595,35 +651,20 @@ class DataLocker:
             rows = cursor.fetchall()
             conn.close()
 
-            positions = []
+            # Convert each row to a normal dict
+            results = []
             for row in rows:
-                row_dict = dict(row)
-                p = Position(**row_dict)
-                positions.append(p)
+                results.append(dict(row))
 
-            self.logger.debug(f"Retrieved {len(positions)} positions.")
-            return positions
+            self.logger.debug(f"Retrieved {len(results)} positions (dicts).")
+            return results
 
         except sqlite3.Error as e:
             self.logger.error(f"Database error in get_positions: {e}", exc_info=True)
             return []
-        except ValidationError as ve:
-            self.logger.error(f"Position validation error: {ve.json()}")
-            return []
         except Exception as e:
             self.logger.exception(f"Unexpected error in get_positions: {e}")
             return []
-
-    def read_positions(self) -> List[dict]:
-        """
-        This calls `get_positions()` (returns Pydantic Position objects),
-        then converts each Position to a dict.
-        """
-        position_objs = self.get_positions()
-        results = []
-        for pos_obj in position_objs:
-            results.append(pos_obj.model_dump())
-        return results
 
     def delete_position(self, position_id: str):
         """ Delete a position by ID. (Ephemeral approach) """
