@@ -682,6 +682,23 @@ class DataLocker:
             self.logger.exception(f"Unexpected error in delete_position: {e}")
             raise
 
+    def update_position(self, position_id: str, size: float, collateral: float):
+        """
+        Updates the given position in the database with new size and collateral.
+        """
+        try:
+            query = """
+            UPDATE positions
+               SET size = ?,
+                   collateral = ?
+             WHERE id = ?
+            """
+            self.cursor.execute(query, (size, collateral, position_id))
+            self.conn.commit()
+        except Exception as e:
+            print(f"Error updating position {position_id}: {e}")
+            raise
+
     def delete_all_positions(self):
         """ Delete ALL rows in positions. (Ephemeral approach) """
         try:

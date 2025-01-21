@@ -38,42 +38,18 @@ class CalcServices:
             ]
         }
 
-    def calculate_value(self, position: dict) -> float:
-        """
-        Safely calculates a position's value based on:
-          - size,
-          - current_price,
-          - entry_price,
-          - position_type (long/short).
-        If size or current_price <= 0, returns 0.0 with a warning.
-        """
+    def calculate_value(self, position):
         size = float(position.get("size", 0.0))
         current_price = float(position.get("current_price", 0.0))
-        entry_price = float(position.get("entry_price", 0.0))
-        position_type = position.get("position_type", "Long").lower()
-
         if size <= 0 or current_price <= 0:
-            print(f"[WARNING] Invalid size={size} or current_price={current_price}. Returning value=0.0.")
             return 0.0
 
-        if position_type == "long":
-            # Simple: value = size * current_price
-            return round(size * current_price, 2)
-        elif position_type == "short":
-            # Example short formula: size * (2*entry_price - current_price)
-            # Adjust as needed for your actual short logic
-            return round(size * (2 * entry_price - current_price), 2)
-        else:
-            print(f"[WARNING] Unsupported position type: {position_type}. Returning value=0.0.")
-            return 0.0
+        # For both LONG & SHORT, let's do size * current_price
+        return round(size * current_price, 2)
 
-    def calculate_leverage(self, size: float, collateral: float) -> Optional[float]:
-        """
-        Leverage = size / collateral (assuming 'size' is notional).
-        Returns None if size <= 0 or collateral <= 0 to avoid dividing by zero.
-        """
+    def calculate_leverage(self, size: float, collateral: float) -> float:
         if size <= 0 or collateral <= 0:
-            return None
+            return 0.0
         return round(size / collateral, 2)
 
     def calculate_travel_percent(self,

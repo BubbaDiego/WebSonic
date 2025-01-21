@@ -131,13 +131,17 @@ def save_app_config(config: AppConfig):
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4)
 
+
 @app.route("/edit-position/<position_id>", methods=["POST"])
 def edit_position(position_id):
     logger.debug(f"Editing position {position_id}.")
     try:
         size = float(request.form.get("size", 0.0))
         collateral = float(request.form.get("collateral", 0.0))
-        data_locker.update_position(position_id, new_size=size, new_collateral=collateral)
+
+        # Now only two arguments
+        data_locker.update_position(position_id, size, collateral)
+
         data_locker.sync_dependent_data()
         data_locker.sync_calc_services()
         return redirect(url_for("positions"))
@@ -236,10 +240,17 @@ def show_prices():
 
 @app.route("/positions")
 def positions():
-    positions_data = data_locker.read_positions()  # list of dict
-    # aggregator if you want
+    # 1) read raw positions
+    positions_data = data_locker.read_positions()
+
+    # 2) fill them with the newest price if missing
+    positions_data = fill_positions_with_latest_price(positions_data)
+
+    # 3) aggregator calculations
+    positions_data = calc_services.prepare_positions_for_display(positions_data)
+
+    # 4) aggregator for totals
     totals = aggregator_positions_dict(positions_data)
-    # pass them to the template
     return render_template("positions.html", positions=positions_data, totals=totals)
 
 
@@ -332,6 +343,41 @@ def _convert_iso_to_pst(iso_str):
         return dt_pst.strftime("%Y-%m-%d %H:%M:%S %Z")
     except:
         return "N/A"
+
+def fill_positions_with_latest_price(positions: List[dict]) -> List[dict]:
+    """
+    For each position, if 'current_price' is 0 or missing,
+    do a lookup from your 'prices' table to find the latest price
+    for that asset_type. Then store it in pos["current_price"].
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    for pos in positions:
+        asset = pos.get("asset_type","BTC").upper()
+        # If the position already has a non-zero current_price, skip if you want
+        if pos.get("current_price", 0.0) > 0:
+            continue
+
+        # Check 'prices' for the newest row for that asset
+        row = cursor.execute("""
+            SELECT current_price
+            FROM prices
+            WHERE asset_type = ?
+            ORDER BY last_update_time DESC
+            LIMIT 1
+        """, (asset,)).fetchone()
+
+        if row:
+            newest_price = float(row["current_price"])
+            pos["current_price"] = newest_price
+        else:
+            # No price data => keep it at 0.0
+            pos["current_price"] = 0.0
+
+    conn.close()
+    return positions
 
 def _get_top_prices_for_assets(db_path, assets=None):
     """
@@ -474,24 +520,53 @@ def manual_check_alerts():
 # Alert / System Config
 # --------------------------------------------------
 @app.route("/alert-options", methods=["GET", "POST"])
+@app.route("/alert-options", methods=["GET", "POST"])
 def alert_options():
-    config_data = AppConfig.load("sonic_config.json")
-    if request.method == "POST":
-        new_heat_index_low = float(request.form["heat_index_low"])
-        new_heat_index_medium = float(request.form["heat_index_medium"])
-        raw_heat_index_high = request.form.get("heat_index_high", "")
-        new_heat_index_high = float(raw_heat_index_high) if raw_heat_index_high else None
+    """
+    Example route that loads config from 'sonic_config.json' with standard JSON,
+    then constructs an AppConfig(...) object from it (Pydantic).
+    On POST, we parse form fields, update the config, and save back to JSON.
+    """
+    try:
+        # 1) Load JSON from disk
+        with open("sonic_config.json", "r", encoding="utf-8") as f:
+            data = json.load(f)
 
-        config_data.alert_ranges.heat_index_ranges.low = new_heat_index_low
-        config_data.alert_ranges.heat_index_ranges.medium = new_heat_index_medium
-        config_data.alert_ranges.heat_index_ranges.high = new_heat_index_high
+        # 2) Parse into Pydantic model
+        config_data = AppConfig(**data)
 
-        data_dict = config_data.model_dump()
-        with open("sonic_config.json", "w") as f:
-            json.dump(data_dict, f, indent=2)
-        return redirect(url_for("alert_options"))
+        if request.method == "POST":
+            # 3) Parse form fields, update the config
+            new_heat_index_low = float(request.form.get("heat_index_low", 0.0))
+            new_heat_index_medium = float(request.form.get("heat_index_medium", 0.0))
+            new_heat_index_high_str = request.form.get("heat_index_high", "")
+            new_heat_index_high = float(new_heat_index_high_str) if new_heat_index_high_str else None
 
-    return render_template("alert_options.html", config=config_data)
+            # Example: if AppConfig has nested fields like `config_data.alert_ranges.heat_index_ranges.low`
+            # we update them:
+            config_data.alert_ranges.heat_index_ranges.low = new_heat_index_low
+            config_data.alert_ranges.heat_index_ranges.medium = new_heat_index_medium
+            config_data.alert_ranges.heat_index_ranges.high = new_heat_index_high
+
+            # 4) Save updated config back to disk
+            with open("sonic_config.json", "w", encoding="utf-8") as f:
+                json.dump(config_data.model_dump(), f, indent=2)
+
+            flash("Alert settings updated!", "success")
+            return redirect(url_for("alert_options"))
+
+        # GET -> just show the form with current config_data
+        return render_template("alert_options.html", config=config_data)
+
+    except FileNotFoundError:
+        # If sonic_config.json is missing
+        return jsonify({"error": "sonic_config.json not found"}), 404
+    except json.JSONDecodeError:
+        # If file is invalid JSON
+        return jsonify({"error": "Invalid JSON in config file"}), 400
+    except Exception as e:
+        app.logger.error(f"Error handling /alert-options: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/system-options", methods=["GET", "POST"])
 @app.route("/system-options", methods=["GET", "POST"])
@@ -566,53 +641,94 @@ def export_config():
 # --------------------------------------------------
 @app.route("/heat", methods=["GET"])
 def heat():
-    logger.debug("Entered /heat route.")
-    try:
-        # read positions from DB as dict
-        positions_data = data_locker.read_positions()
+    positions_data = data_locker.read_positions()
 
-        # build the big dictionary
-        heat_data = build_heat_data(positions_data)  # returns the structure
+    # fill them with the newest price
+    positions_data = fill_positions_with_latest_price(positions_data)
 
-        # Pass it to your template
-        return render_template("heat.html", heat_data=heat_data)
-    except Exception as e:
-        logger.error(f"Error generating heat page: {e}", exc_info=True)
-        return jsonify({"error": str(e)}), 500
+    # do aggregator calculations
+    positions_data = calc_services.prepare_positions_for_display(positions_data)
 
-def build_heat_data(positions):
+    # build heat data
+    heat_data = build_heat_data(positions_data)
+    return render_template("heat.html", heat_data=heat_data)
+
+def build_heat_data(positions: List[dict]) -> dict:
+    """
+    positions: a list of dicts from `data_locker.read_positions()`.
+      Each dict should have keys like:
+        "asset_type" -> "BTC"/"ETH"/"SOL"
+        "position_type" -> "LONG" or "SHORT"
+        "collateral", "value", "size", "leverage", "current_travel_percent",
+        "heat_index", etc.
+    Returns a nested dictionary matching the 'heat.html' template's expectations.
+    """
+
+    # Initialize the big structure
     structure = {
        "BTC":  {"short": {}, "long": {}},
        "ETH":  {"short": {}, "long": {}},
        "SOL":  {"short": {}, "long": {}},
        "totals": {
-           "short": {
-               "asset": "Short",
-               "collateral": 0.0,
-               "value": 0.0,
-               "leverage": 0.0,
-               "travel_percent": 0.0,
-               "heat_index": 0.0,
-               "size": 0.0
-           },
-           "long": {
-               "asset": "Long",
-               "collateral": 0.0,
-               "value": 0.0,
-               "leverage": 0.0,
-               "travel_percent": 0.0,
-               "heat_index": 0.0,
-               "size": 0.0
-           }
+         "short": {
+           "asset": "Short",
+           "collateral": 0.0,
+           "value": 0.0,
+           "leverage": 0.0,
+           "travel_percent": 0.0,
+           "heat_index": 0.0,
+           "size": 0.0
+         },
+         "long": {
+           "asset": "Long",
+           "collateral": 0.0,
+           "value": 0.0,
+           "leverage": 0.0,
+           "travel_percent": 0.0,
+           "heat_index": 0.0,
+           "size": 0.0
+         }
        }
     }
 
-    # For each position, fill structure[asset][side] if it exists
-    # If you have data for "BTC_short", set structure["BTC"]["short"] = {...fields...}
-    # If there's no data for short => we just leave it as {}, not None
+    # For each position in the DB, map it into this structure
+    for pos in positions:
+        # e.g. pos["asset_type"] = "BTC", pos["position_type"] = "SHORT"
+        asset = pos.get("asset_type", "BTC").upper()  # "BTC"/"ETH"/"SOL"
+        side  = pos.get("position_type", "LONG").lower()  # "short" / "long"
+
+        # If the position isn't one of the 3 assets or is spelled weird, skip it
+        if asset not in ["BTC", "ETH", "SOL"]:
+            continue
+        if side not in ["short", "long"]:
+            continue
+
+        # Build the dictionary the template expects
+        row = {
+          "asset": asset,
+          "collateral": float(pos.get("collateral", 0.0)),
+          "value": float(pos.get("value", 0.0)),
+          "leverage": float(pos.get("leverage", 0.0)),
+          "travel_percent": float(pos.get("current_travel_percent", 0.0)),
+          "heat_index": float(pos.get("heat_index", 0.0)),
+          "size": float(pos.get("size", 0.0))
+        }
+
+        # Place it in structure[asset][side]
+        structure[asset][side] = row
+
+        # Also accumulate totals
+        totals_side = structure["totals"][side]
+        totals_side["collateral"] += row["collateral"]
+        totals_side["value"]      += row["value"]
+        totals_side["size"]       += row["size"]
+        totals_side["travel_percent"] += row["travel_percent"]
+        totals_side["heat_index"] += row["heat_index"]
+        # If you want to do an *average* leverage or travel_percent, you'd
+        # need to track how many positions contributed. But we’ll just sum
+        # them here. It’s up to you.
 
     return structure
-
 # --------------------------------------------------
 # Audio Tester (NEW)
 # --------------------------------------------------
