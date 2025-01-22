@@ -85,15 +85,32 @@ def index():
 # --------------------------------------------------
 
 
-def aggregate_positions_dicts(positions: List[dict]) -> Dict[str, float]:
+def aggregator_positions_dict(positions: List[dict]) -> dict:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
     total_collateral = 0.0
     total_value = 0.0
     total_size = 0.0
 
     for pos in positions:
+        # Overwrite old field
+        new_val = pos.get("calculate_travel_percent", 0.0)
+        pos["current_travel_percent"] = new_val
+
+        # Update the DB
+        cursor.execute("""
+            UPDATE positions
+               SET current_travel_percent = ?
+             WHERE id = ?
+        """, (new_val, pos["id"]))
+
         total_collateral += pos.get("collateral", 0.0)
-        total_value += pos.get("value", 0.0)
-        total_size += pos.get("size", 0.0)
+        total_value      += pos.get("value", 0.0)
+        total_size       += pos.get("size", 0.0)
+
+    conn.commit()
+    conn.close()
 
     return {
         "total_collateral": total_collateral,
@@ -142,7 +159,7 @@ def edit_position(position_id):
         # Now only two arguments
         data_locker.update_position(position_id, size, collateral)
 
-        data_locker.sync_dependent_data()
+       # data_locker.sync_dependent_data()
         data_locker.sync_calc_services()
         return redirect(url_for("positions"))
     except Exception as e:
@@ -246,12 +263,13 @@ def positions():
     # 2) fill them with the newest price if missing
     positions_data = fill_positions_with_latest_price(positions_data)
 
-    # 3) aggregator calculations
-    positions_data = calc_services.prepare_positions_for_display(positions_data)
+    # 3) aggregator calculations + DB update, all in calc_services
+    updated_positions = calc_services.aggregator_positions(positions_data, DB_PATH)
 
-    # 4) aggregator for totals
-    totals = aggregator_positions_dict(positions_data)
-    return render_template("positions.html", positions=positions_data, totals=totals)
+    # 4) Render or do other aggregator totals
+    totals = aggregator_positions_dict(updated_positions)
+
+    return render_template("positions.html", positions=updated_positions, totals=totals)
 
 
 def aggregator_positions_dict(positions: List[dict]) -> dict:

@@ -1,6 +1,7 @@
 # calc_services.py
 
 from typing import Optional, List, Dict
+import sqlite3
 
 class CalcServices:
     """
@@ -39,52 +40,120 @@ class CalcServices:
         }
 
     def calculate_value(self, position):
+        # Since size is *already* in USD, just return it
         size = float(position.get("size", 0.0))
-        current_price = float(position.get("current_price", 0.0))
-        if size <= 0 or current_price <= 0:
-            return 0.0
-
-        # For both LONG & SHORT, let's do size * current_price
-        return round(size * current_price, 2)
+        return round(size, 2)
 
     def calculate_leverage(self, size: float, collateral: float) -> float:
         if size <= 0 or collateral <= 0:
             return 0.0
         return round(size / collateral, 2)
 
-    def calculate_travel_percent(self,
-                                 entry_price: float,
-                                 current_price: float,
-                                 liquidation_price: float,
-                                 debug=False) -> float:
+    def calculate_travel_percent(
+            self,
+            position_type: str,
+            entry_price: float,
+            current_price: float,
+            liquidation_price: float,
+            profit_price: float
+    ) -> float:
         """
-        Calculate how far along we are between entry_price and liquidation_price,
-        as a percentage.
-        travel% = ((current_price - entry_price) / (liquidation_price - entry_price)) * 100
-        Returns 0.0 if there's any error (zero/negative distance, bad inputs, etc.).
+        Example function that calculates travel_percent for both LONG and SHORT.
+        Adjust as needed to fit your exact logic.
         """
-        try:
-            if entry_price is None or liquidation_price is None:
-                raise ValueError("Entry price and liquidation price must be provided.")
+        ptype = position_type.upper()
 
-            if not all(isinstance(x, (int, float)) for x in [entry_price, current_price, liquidation_price]):
-                raise TypeError("All price inputs must be numeric.")
-
-            distance = liquidation_price - entry_price
-            current_travel = current_price - entry_price
-
-            if distance == 0:
-                raise ZeroDivisionError("liquidation_price and entry_price cannot be equal.")
-
-            travel_percent = (current_travel / distance) * 100
-            if debug:
-                print(f"[DEBUG] entry={entry_price}, current={current_price}, liq={liquidation_price}, travel%={travel_percent}")
-
-            return travel_percent
-
-        except Exception as e:
-            print(f"[ERROR] calculate_travel_percent failed: {e}. Returning 0.0.")
+        # Basic checks
+        if entry_price <= 0 or liquidation_price <= 0:
             return 0.0
+
+        # Helper to avoid dividing by zero
+        def pct_of_range(numer, denom):
+            return (numer / denom) * 100 if denom else 0.0
+
+        # Default to 0.0 so we always have something to return
+        travel_percent = 0.0
+
+        if ptype == "LONG":
+            if current_price < entry_price:
+                # Negative side => -100% at liquidation
+                denom = (entry_price - liquidation_price)
+                numer = (current_price - entry_price)
+                travel_percent = pct_of_range(numer, -abs(denom))
+            else:
+                # Positive side => +100% at profit_price
+                denom = (profit_price - entry_price)
+                numer = (current_price - entry_price)
+                travel_percent = pct_of_range(numer, denom)
+        else:  # SHORT
+            if current_price > entry_price:
+                # Negative side => -100% at liquidation
+                denom = (liquidation_price - entry_price)
+                numer = (entry_price - current_price)
+                travel_percent = pct_of_range(numer, -abs(denom))
+            else:
+                # Positive side => +100% at profit_price
+                denom = abs(entry_price - profit_price)
+                numer = (entry_price - current_price)
+                travel_percent = pct_of_range(numer, denom)
+
+        return travel_percent
+
+    def aggregator_positions(
+            self,
+            positions: List[dict],
+            db_path: str
+    ) -> List[dict]:
+        """
+        Does it all:
+          1) Derives profit_price if necessary,
+          2) Calculates travel_percent,
+          3) Overwrites positions in-memory,
+          4) Updates DB so 'current_travel_percent' is persisted,
+          5) Returns the updated list of positions.
+        """
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        for pos in positions:
+            position_type = (pos.get("position_type") or "LONG").upper()
+            entry_price = float(pos.get("entry_price", 0.0))
+            current_price = float(pos.get("current_price", 0.0))
+            liquidation_price = float(pos.get("liquidation_price", 0.0))
+
+            # 1) Derive or pick a profit_price
+            if position_type == "LONG":
+                profit_price = entry_price * 2
+            else:
+                profit_price = entry_price / 2
+
+            # 2) Calculate
+            travel_percent = self.calculate_travel_percent(
+                position_type,
+                entry_price,
+                current_price,
+                liquidation_price,
+                profit_price
+            )
+
+            # 3) Overwrite in-memory
+            pos["current_travel_percent"] = travel_percent
+
+            # 4) Update DB
+            try:
+                cursor.execute("""
+                    UPDATE positions
+                       SET current_travel_percent = ?
+                     WHERE id = ?
+                """, (travel_percent, pos["id"]))
+            except Exception as e:
+                print(f"Error updating travel_percent for position {pos['id']}: {e}")
+
+        conn.commit()
+        conn.close()
+
+        # 5) Return updated positions
+        return positions
 
     def calculate_liquid_distance(self, current_price: float, liquidation_price: float) -> float:
         """
@@ -112,46 +181,69 @@ class CalcServices:
         return round(hi, 2)
 
     def prepare_positions_for_display(self, positions: List[dict]) -> List[dict]:
-        """
-        Main aggregator entry point:
-         - Merges the above calculations (value, leverage, heat index, travel_percent).
-         - Optionally applies color coding to certain fields (e.g. travel %).
-         - Returns a list of processed position dicts with aggregator fields set.
-        """
         processed_positions = []
-        for pos in positions:
-            # 1) Value
-            current_price = float(pos.get("current_price") or 0.0)
-            if current_price > 0:
-                pos["value"] = self.calculate_value(pos)
+
+        for idx, pos in enumerate(positions, start=1):
+            print(f"\n[DEBUG] Position #{idx} BEFORE aggregator => {pos}")
+
+            # 1) Position type logic
+            raw_ptype = pos.get("position_type", "LONG")
+            ptype_lower = raw_ptype.strip().lower()
+            if "short" in ptype_lower:
+                position_type = "SHORT"
             else:
-                pos["value"] = 0.0  # skip aggregator logic if price is invalid
+                position_type = "LONG"
 
-            # 2) Leverage
-            size = float(pos.get("size", 0.0))
+            # 2) Grab fields
+            entry_price = float(pos.get("entry_price", 0.0))
+            current_price = float(pos.get("current_price", 0.0))
             collateral = float(pos.get("collateral", 0.0))
-            pos["leverage"] = self.calculate_leverage(size, collateral) or 0.0
+            size = float(pos.get("size", 0.0))
+            liquidation_price = float(pos.get("liquidation_price", 0.0))
 
-            # 3) Heat Index
-            pos["heat_index"] = self.calculate_heat_index(pos) or 0.0
-
-            # 4) Travel %
-            # if current_travel_percent isn't already set or is None, compute it
-            if "current_travel_percent" not in pos or pos["current_travel_percent"] is None:
-                entry_price = float(pos.get("entry_price", 0.0))
-                liquidation_price = float(pos.get("liquidation_price", 0.0))
-                pos["current_travel_percent"] = self.calculate_travel_percent(
-                    entry_price, current_price, liquidation_price
-                )
-
-            # 5) Liquid distance
-            pos["liquid_distance"] = self.calculate_liquid_distance(
-                current_price, pos.get("liquidation_price", 0.0)
+            # 3) Calculate 'calculate_travel_percent'
+            pos["calculate_travel_percent"] = self.calculate_travel_percent(
+                position_type,
+                entry_price,
+                current_price,
+                liquidation_price,
+                profit_price=pos.get("profit_price")
             )
 
-            # 6) Color-coded fields (optional)
-            pos["travel_percent_color"] = self.get_color(pos["current_travel_percent"], "travel_percent")
-            pos["heat_index_color"] = self.get_color(pos["heat_index"], "heat_index")
+            # ---------------------------
+            # NEW CODE HERE
+            # Overwrite current_travel_percent with that newly computed value:
+            # ---------------------------
+            pos["current_travel_percent"] = pos["calculate_travel_percent"]
+            # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            # This is the missing link: now 'current_travel_percent' won't stay at zero!
+            # ---------------------------
+
+            print(f"[DEBUG] Normalized => type={position_type}, "
+                  f"entry={entry_price}, current={current_price}, "
+                  f"collat={collateral}, size={size}, "
+                  f"travel_percent={pos['calculate_travel_percent']}")
+
+            # (rest of aggregator logic)...
+            # PnL, value, leverage, heat_index, etc.
+            if entry_price <= 0:
+                pnl = 0.0
+            else:
+                token_count = size / entry_price
+                if position_type == "LONG":
+                    pnl = (current_price - entry_price) * token_count
+                else:
+                    pnl = (entry_price - current_price) * token_count
+
+            pos["value"] = round(collateral + pnl, 2)
+            if collateral > 0:
+                pos["leverage"] = round(size / collateral, 2)
+            else:
+                pos["leverage"] = 0.0
+
+            pos["heat_index"] = self.calculate_heat_index(pos) or 0.0
+
+            print(f"[DEBUG] Position #{idx} AFTER aggregator => {pos}")
 
             processed_positions.append(pos)
 

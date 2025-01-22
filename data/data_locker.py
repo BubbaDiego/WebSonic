@@ -1,11 +1,12 @@
 import sqlite3
 import logging
 from data.models import Price, Alert, Position, AssetType, Status
+
 from typing import List, Dict, Optional
 from datetime import datetime
 from uuid import uuid4
 #from pydantic import ValidationError
-
+from calc_services import CalcServices
 class DataLocker:
     """
     A synchronous DataLocker that manages database interactions using sqlite3.
@@ -549,92 +550,58 @@ class DataLocker:
 
     def create_position(self, pos_dict: dict):
         """
-        Inserts a new position row using ephemeral approach.
-        We fill in defaults for any missing fields, matching
-        all the fields from the old Pydantic 'Position' model.
+        Inserts a new position row. We open a FRESH connection each time,
+        so we never get the 'Cannot operate on a closed database' issue.
         """
+        from uuid import uuid4
+        from datetime import datetime
+        import sqlite3
+
+        # Provide defaults for missing fields
+        if "id" not in pos_dict:
+            pos_dict["id"] = str(uuid4())
+        pos_dict.setdefault("asset_type", "BTC")
+        pos_dict.setdefault("position_type", "LONG")
+        pos_dict.setdefault("entry_price", 0.0)
+        pos_dict.setdefault("liquidation_price", 0.0)
+        pos_dict.setdefault("current_travel_percent", 0.0)
+        pos_dict.setdefault("value", 0.0)
+        pos_dict.setdefault("collateral", 0.0)
+        pos_dict.setdefault("size", 0.0)
+        pos_dict.setdefault("leverage", 0.0)
+        pos_dict.setdefault("wallet", "Default")
+        pos_dict.setdefault("last_updated", datetime.now().isoformat())
+        pos_dict.setdefault("alert_reference_id", None)
+        pos_dict.setdefault("hedge_buddy_id", None)
+        pos_dict.setdefault("current_price", 0.0)
+        pos_dict.setdefault("liquidation_distance", None)
+        pos_dict.setdefault("heat_index", 0.0)
+        pos_dict.setdefault("current_heat_index", 0.0)
+
+        # Now open, insert, close
         try:
-            # 1) Provide defaults for missing fields
-            from uuid import uuid4
-            from datetime import datetime
-
-            if "id" not in pos_dict:
-                pos_dict["id"] = str(uuid4())
-
-            if "asset_type" not in pos_dict:
-                pos_dict["asset_type"] = "BTC"  # or some default
-
-            if "position_type" not in pos_dict:
-                pos_dict["position_type"] = "LONG"
-
-            if "entry_price" not in pos_dict:
-                pos_dict["entry_price"] = 0.0
-
-            if "liquidation_price" not in pos_dict:
-                pos_dict["liquidation_price"] = 0.0
-
-            if "current_travel_percent" not in pos_dict:
-                pos_dict["current_travel_percent"] = 0.0
-
-            if "value" not in pos_dict:
-                pos_dict["value"] = 0.0
-
-            if "collateral" not in pos_dict:
-                pos_dict["collateral"] = 0.0
-
-            if "size" not in pos_dict:
-                pos_dict["size"] = 0.0
-
-            if "leverage" not in pos_dict:
-                pos_dict["leverage"] = 0.0
-
-            if "wallet" not in pos_dict:
-                pos_dict["wallet"] = "Default"
-
-            if "last_updated" not in pos_dict:
-                pos_dict["last_updated"] = datetime.now().isoformat()
-
-            if "alert_reference_id" not in pos_dict:
-                pos_dict["alert_reference_id"] = None
-
-            if "hedge_buddy_id" not in pos_dict:
-                pos_dict["hedge_buddy_id"] = None
-
-            if "current_price" not in pos_dict:
-                pos_dict["current_price"] = 0.0
-
-            if "liquidation_distance" not in pos_dict:
-                pos_dict["liquidation_distance"] = None
-
-            if "heat_index" not in pos_dict:
-                pos_dict["heat_index"] = 0.0
-
-            if "current_heat_index" not in pos_dict:
-                pos_dict["current_heat_index"] = 0.0
-
-            # 2) Insert ephemeral
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO positions (
-                    id, asset_type, position_type,
-                    entry_price, liquidation_price, current_travel_percent,
-                    value, collateral, size, wallet, leverage, last_updated,
-                    alert_reference_id, hedge_buddy_id, current_price,
-                    liquidation_distance, heat_index, current_heat_index
-                )
-                VALUES (
-                    :id, :asset_type, :position_type,
-                    :entry_price, :liquidation_price, :current_travel_percent,
-                    :value, :collateral, :size, :wallet, :leverage, :last_updated,
-                    :alert_reference_id, :hedge_buddy_id, :current_price,
-                    :liquidation_distance, :heat_index, :current_heat_index
-                )
-            """, pos_dict)
-            conn.commit()
-            conn.close()
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO positions (
+                        id, asset_type, position_type,
+                        entry_price, liquidation_price, current_travel_percent,
+                        value, collateral, size, wallet, leverage, last_updated,
+                        alert_reference_id, hedge_buddy_id, current_price,
+                        liquidation_distance, heat_index, current_heat_index
+                    )
+                    VALUES (
+                        :id, :asset_type, :position_type,
+                        :entry_price, :liquidation_price, :current_travel_percent,
+                        :value, :collateral, :size, :wallet, :leverage, :last_updated,
+                        :alert_reference_id, :hedge_buddy_id, :current_price,
+                        :liquidation_distance, :heat_index, :current_heat_index
+                    )
+                """, pos_dict)
+                conn.commit()
 
             self.logger.debug(f"Created position with ID={pos_dict['id']}")
+
         except Exception as e:
             self.logger.exception(f"Unexpected error in create_position: {e}")
             raise
@@ -700,20 +667,57 @@ class DataLocker:
             raise
 
     def delete_all_positions(self):
-        """ Delete ALL rows in positions. (Ephemeral approach) """
+        """
+        Deletes ALL rows in the 'positions' table, using a fresh connection each time.
+        """
+        import sqlite3
+
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM positions")
-            conn.commit()
-            conn.close()
-            self.logger.debug("Deleted ALL positions.")
-        except sqlite3.Error as e:
-            self.logger.error(f"Database error in delete_all_positions: {e}", exc_info=True)
-            raise
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM positions")
+                conn.commit()
+
+            self.logger.debug("Deleted all positions.")
+
         except Exception as e:
-            self.logger.exception(f"Unexpected error in delete_all_positions: {e}")
+            self.logger.exception(f"Error deleting all positions: {e}")
             raise
+
+    def update_current_travel_percent(self, pos: dict, calc_services: CalcServices):
+        """
+        1) Calculate new travel percent using the aggregator method.
+        2) Store in pos["current_travel_percent"].
+        3) Persist that new value to the 'positions' table in the DB.
+        """
+        new_val = calc_services.calculate_travel_percent(
+            pos["position_type"],
+            pos["entry_price"],
+            pos["current_price"],
+            pos["liquidation_price"],
+            profit_price=pos.get("profit_price")  # if you have a profit_price field
+        )
+
+        # Update the in-memory dictionary
+        pos["current_travel_percent"] = new_val
+
+        # Update the DB
+        try:
+            self.cursor.execute(
+                """
+                UPDATE positions
+                   SET current_travel_percent = ?
+                 WHERE id = ?
+                """,
+                (new_val, pos["id"])
+            )
+            self.conn.commit()
+        except Exception as e:
+            self.conn.rollback()
+            raise e
+
+    def close(self):
+        self.conn.close()
 
     # ----------------------------------------------------------------
     # NEW: If you need the raw row-based version, rename the older one:

@@ -91,7 +91,7 @@
                    id="edit-size-{{ pos.id }}" value="{{ pos.size }}">
           </td>
           <td>{{ "{:,.2f}".format(pos.leverage) }}</td>
-          <td class="{{ pos.travel_percent_status }}">
+          <td class="{{ pos.current_travel_percent_status }}">
             {% if pos.current_travel_percent is not none %}
               {{ "{:,.2f}".format(pos.current_travel_percent) }}%
             {% else %} 
