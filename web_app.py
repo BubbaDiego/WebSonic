@@ -260,15 +260,14 @@ def positions():
     # 1) read raw positions
     positions_data = data_locker.read_positions()
 
-    # 2) fill them with the newest price if missing
+    # 2) fill them with newest price if missing
     positions_data = fill_positions_with_latest_price(positions_data)
 
-    # 3) aggregator calculations + DB update, all in calc_services
+    # 3) aggregator calculations
     updated_positions = calc_services.aggregator_positions(positions_data, DB_PATH)
 
-    # 4) Render or do other aggregator totals
+    # 4) aggregator for totals
     totals = aggregator_positions_dict(updated_positions)
-
     return render_template("positions.html", positions=updated_positions, totals=totals)
 
 
