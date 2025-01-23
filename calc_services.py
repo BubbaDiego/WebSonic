@@ -136,6 +136,11 @@ class CalcServices:
             )
             pos["current_travel_percent"] = travel_percent
 
+            pos["liquidation_distance"] = self.calculate_liquid_distance(
+                current_price=pos.get("current_price", 0.0),
+                liquidation_price=pos.get("liquidation_price", 0.0)
+            )
+
             # 3) Update DB
             try:
                 cursor.execute("""
@@ -145,6 +150,19 @@ class CalcServices:
                 """, (travel_percent, pos["id"]))
             except Exception as e:
                 print(f"Error updating travel_percent for position {pos['id']}: {e}")
+
+            try:
+                cursor.execute(
+                    """
+                    UPDATE positions
+                       SET liquidation_distance = ?
+                     WHERE id = ?
+                    """,
+                    (pos["liquidation_distance"], pos["id"])
+                )
+            except Exception as e:
+                print(f"Error updating liquidation_distance for position {pos['id']}: {e}")
+
 
             # (Optional) Basic PnL => Value
             # Just an example:
