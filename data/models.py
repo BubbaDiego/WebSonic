@@ -98,11 +98,44 @@ class Position(BaseModel):
     heat_index: float = 0.0
     current_heat_index: float = 0.0
 
-    @field_validator('current_travel_percent', mode='after')
-    def validate_travel_percent(cls, v, info):
-        """
-        Ensures that current_travel_percent is between -11500 and 1000.
-        """
-        if not -11500.0 <= v <= 1000.0:
-            raise ValueError('current_travel_percent must be between -11500 and 1000')
-        return v
+class CryptoWallet:
+    """
+    Represents a crypto wallet with:
+      - name:           e.g., "VaderVault"
+      - public_address: a single public address (for demonstration)
+      - private_address: not recommended for production usage, but okay for dev
+      - image_path:     path or URL to an identifying image
+      - balance:        total balance in USD (or any currency you like)
+    """
+
+    def __init__(
+            self,
+            name: str,
+            public_address: str,
+            private_address: str,
+            image_path: str = "",
+            balance: float = 0.0
+    ):
+        self.name = name
+        self.public_address = public_address
+        self.private_address = private_address
+        self.image_path = image_path
+        self.balance = balance
+
+    def __repr__(self):
+        return (
+            f"CryptoWallet(name={self.name!r}, "
+            f"public_address={self.public_address!r}, "
+            f"private_address={self.private_address!r}, "
+            f"image_path={self.image_path!r}, "
+            f"balance={self.balance})"
+        )
+
+@field_validator('current_travel_percent', mode='after')
+def validate_travel_percent(cls, v, info):
+    """
+    Ensures that current_travel_percent is between -11500 and 1000.
+    """
+    if not -11500.0 <= v <= 1000.0:
+        raise ValueError('current_travel_percent must be between -11500 and 1000')
+    return v

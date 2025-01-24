@@ -1,6 +1,6 @@
 import sqlite3
 import logging
-from data.models import Price, Alert, Position, AssetType, Status
+from data.models import Price, Alert, Position, AssetType, Status, CryptoWallet
 
 from typing import List, Dict, Optional
 from datetime import datetime
@@ -70,6 +70,17 @@ class DataLocker:
                 )
             """)
 
+            # (2) If 'wallet_name' column is missing, add it.
+            cursor.execute("PRAGMA table_info(positions)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if "wallet_name" not in columns:
+                cursor.execute("""
+                           ALTER TABLE positions
+                           ADD COLUMN wallet_name TEXT NOT NULL DEFAULT 'Default'
+                       """)
+                print("Added 'wallet_name' column to 'positions' table.")
+
+
             # ALERTS TABLE
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS alerts (
@@ -97,6 +108,18 @@ class DataLocker:
                     last_updated DATETIME
                 )
             """)
+
+            # WALLET STUFF
+            cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS wallets (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            name TEXT UNIQUE NOT NULL,
+                            public_address TEXT,
+                            private_address TEXT,
+                            image_path TEXT,
+                            balance REAL DEFAULT 0.0
+                        )
+                    """)
 
             conn.commit()
             conn.close()
@@ -503,56 +526,55 @@ class DataLocker:
     # ----------------------------------------------------------------
     def insert_or_update_price(self, asset_type: str, current_price: float, source: str, timestamp=None):
         """
-        Link function so PriceMonitor can call data_locker.insert_or_update_price(...)
-        without causing an AttributeError. We do a simple check:
-          1) If there's an existing row for `asset_type`, we update current_price.
-          2) Otherwise, we construct a Price object and call insert_price(...).
+        Called by your PriceMonitor code to update or insert a price row.
+        Instead of building a Price object, we build a dictionary
+        and pass it to insert_price(...).
         """
         self._init_sqlite_if_needed()
 
         if timestamp is None:
             timestamp = datetime.now()
 
-        # See if we already have a row for this asset
+        # 1) Check if there's an existing row for this asset
         self.cursor.execute("SELECT id FROM prices WHERE asset_type = ?", (asset_type,))
         row = self.cursor.fetchone()
 
         if row:
-            # existing row => do an update
+            # 2) existing row => UPDATE
             try:
                 self.logger.debug(f"Updating existing price row for {asset_type}.")
                 self.cursor.execute("""
                     UPDATE prices
-                    SET current_price = ?, last_update_time = ?, source = ?
-                    WHERE asset_type = ?
+                       SET current_price = ?,
+                           last_update_time = ?,
+                           source = ?
+                     WHERE asset_type = ?
                 """, (current_price, timestamp.isoformat(), source, asset_type))
                 self.conn.commit()
             except Exception as e:
                 self.logger.error(f"Error updating existing price row for {asset_type}: {e}", exc_info=True)
-        else:
-            # no row => build a Price object & call insert_price(...)
-            self.logger.debug(f"No existing row for {asset_type}; inserting new price row.")
-            from data.models import Price, AssetType, SourceType
 
-            price_obj = Price(
-                asset_type=AssetType(asset_type),
-                current_price=current_price,
-                previous_price=0.0,
-                last_update_time=timestamp,
-                previous_update_time=None,
-                source=SourceType(source)
-            )
-            self.insert_price(price_obj)
+        else:
+            # 3) no row => BUILD A DICT & call insert_price(...)
+            self.logger.debug(f"No existing row for {asset_type}; inserting new price row.")
+            from uuid import uuid4
+
+            price_dict = {
+                "id": str(uuid4()),
+                "asset_type": asset_type,
+                "current_price": current_price,
+                "previous_price": 0.0,
+                "last_update_time": timestamp.isoformat(),
+                "previous_update_time": None,
+                "source": source
+            }
+            self.insert_price(price_dict)  # Now a dict, so it won't break on item assignment!
 
     # ----------------------------------------------------------------
     # POSITIONS CRUD
     # ----------------------------------------------------------------
 
     def create_position(self, pos_dict: dict):
-        """
-        Inserts a new position row. We open a FRESH connection each time,
-        so we never get the 'Cannot operate on a closed database' issue.
-        """
         from uuid import uuid4
         from datetime import datetime
         import sqlite3
@@ -569,7 +591,7 @@ class DataLocker:
         pos_dict.setdefault("collateral", 0.0)
         pos_dict.setdefault("size", 0.0)
         pos_dict.setdefault("leverage", 0.0)
-        pos_dict.setdefault("wallet", "Default")
+        pos_dict.setdefault("wallet_name", "Default")  # <--- renamed
         pos_dict.setdefault("last_updated", datetime.now().isoformat())
         pos_dict.setdefault("alert_reference_id", None)
         pos_dict.setdefault("hedge_buddy_id", None)
@@ -578,7 +600,6 @@ class DataLocker:
         pos_dict.setdefault("heat_index", 0.0)
         pos_dict.setdefault("current_heat_index", 0.0)
 
-        # Now open, insert, close
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
@@ -586,14 +607,14 @@ class DataLocker:
                     INSERT INTO positions (
                         id, asset_type, position_type,
                         entry_price, liquidation_price, current_travel_percent,
-                        value, collateral, size, wallet, leverage, last_updated,
+                        value, collateral, size, wallet_name, leverage, last_updated,
                         alert_reference_id, hedge_buddy_id, current_price,
                         liquidation_distance, heat_index, current_heat_index
                     )
                     VALUES (
                         :id, :asset_type, :position_type,
                         :entry_price, :liquidation_price, :current_travel_percent,
-                        :value, :collateral, :size, :wallet, :leverage, :last_updated,
+                        :value, :collateral, :size, :wallet_name, :leverage, :last_updated,
                         :alert_reference_id, :hedge_buddy_id, :current_price,
                         :liquidation_distance, :heat_index, :current_heat_index
                     )
@@ -683,6 +704,119 @@ class DataLocker:
         except Exception as e:
             self.logger.exception(f"Error deleting all positions: {e}")
             raise
+
+    def create_wallet(db_path: str, wallet: CryptoWallet):
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO wallets (name, public_address, private_address, image_path, balance)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            wallet.name,
+            wallet.public_address,
+            wallet.private_address,
+            wallet.image_path,
+            wallet.balance
+        ))
+        conn.commit()
+        conn.close()
+
+    def positions():
+        """
+        The main route that displays all positions in a table.
+        Now includes wallet attachment so the template can reference pos["wallet"].
+        """
+        # 1) Read raw positions from DB
+        positions_data = data_locker.read_positions()
+
+        # 2) Fill them with newest price if missing
+        positions_data = fill_positions_with_latest_price(positions_data)
+
+        # 3) Enrich each position (PnL, leverage, etc.) via calc_services
+        updated_positions = calc_services.aggregator_positions(positions_data, DB_PATH)
+
+        # 4) Attach wallet info to each position
+        for pos in updated_positions:
+            # a) Grab the wallet identifier from the position
+            #    (if you used "wallet_name" or "wallet_id" in the positions table)
+            wallet_name = pos.get("wallet_name", "")
+            if wallet_name:
+                # b) Query your "wallets" table to find the matching record
+                #    For example, using a helper function or direct query:
+                wallet = get_wallet_by_name(DB_PATH, wallet_name)
+
+                # c) Attach the wallet object or dictionary to the position
+                if wallet is not None:
+                    pos["wallet"] = wallet
+                else:
+                    pos["wallet"] = None
+            else:
+                # If there's no wallet assigned, set None or skip
+                pos["wallet"] = None
+
+        # 5) Compute overall totals (optional)
+        totals_dict = calc_services.calculate_totals(updated_positions)
+
+        # 6) Build a 'TOTALS' row if you want it in the same table
+        total_row = {
+            "asset_type": "TOTALS",
+            "position_type": "",
+            "leverage": totals_dict["avg_leverage"],
+            "collateral": totals_dict["total_collateral"],
+            "size": totals_dict["total_size"],
+            "entry_price": 0.0,
+            "mark_price": 0.0,
+            "liquidation_price": 0.0,
+            "value": totals_dict["total_value"],
+            "current_travel_percent": totals_dict["avg_travel_percent"],
+            "heat_index": totals_dict["avg_heat_index"],
+
+            # If you reference liquidation_distance or wallet in the template,
+            # set them here so Jinja won't throw an error.
+            "liquidation_distance": 0.0,
+
+            # No wallet for this totals row
+            "wallet": None
+        }
+        updated_positions.append(total_row)
+
+        # 7) Render
+        return render_template(
+            "positions.html",
+            positions=updated_positions,
+            totals=totals_dict
+        )
+
+    def get_wallet_by_name(self, wallet_name: str) -> dict:
+        """
+        Return a dict with the wallet's info, including image_path.
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        row = cursor.execute("""
+            SELECT name,
+                   public_address,
+                   private_address,
+                   image_path,
+                   balance
+              FROM wallets
+             WHERE name = ?
+             LIMIT 1
+        """, (wallet_name,)).fetchone()
+
+        conn.close()
+        if row is None:
+            return None
+
+        return {
+            "name": row["name"],
+            "public_address": row["public_address"],
+            "private_address": row["private_address"],
+            "image_path": row["image_path"],  # e.g. "/static/images/r2vault.jpg"
+            "balance": row["balance"]
+        }
 
     def update_current_travel_percent(self, pos: dict, calc_services: CalcServices):
         """

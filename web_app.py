@@ -196,20 +196,36 @@ def delete_all_positions():
 
 @app.route("/upload-positions", methods=["POST"])
 def upload_positions():
+    """
+    Accepts a file upload (JSON or TXT) containing an array of positions,
+    each with optional "wallet_name". We'll map "wallet_name" -> "wallet"
+    before storing it in the DB.
+    """
     try:
         if "file" not in request.files:
             return jsonify({"error": "No file part in request"}), 400
+
         file = request.files["file"]
         if not file:
             return jsonify({"error": "Empty file"}), 400
 
-        file_contents = file.read().decode("utf-8")
-        if not file_contents.strip():
+        file_contents = file.read().decode("utf-8").strip()
+        if not file_contents:
             return jsonify({"error": "Uploaded file is empty"}), 400
 
-        positions_list = json.loads(file_contents)  # list of dict
+        # Parse JSON => list of positions
+        positions_list = json.loads(file_contents)
+        if not isinstance(positions_list, list):
+            return jsonify({"error": "Top-level JSON must be a list"}), 400
+
         for pos_dict in positions_list:
-            data_locker.create_position(pos_dict)  # ephemeral DB insert
+            # If your JSON has "wallet_name", copy it into "wallet"
+            if "wallet_name" in pos_dict:
+                pos_dict["wallet"] = pos_dict["wallet_name"]
+                # optional: del pos_dict["wallet_name"] if you don't want it lying around
+
+            # Create the position in DB
+            data_locker.create_position(pos_dict)
 
         return jsonify({"message": "Positions uploaded successfully"}), 200
 
@@ -258,52 +274,61 @@ def show_prices():
 @app.route("/positions")
 @app.route("/positions")
 def positions():
+    """
+    Displays positions in a table, ensuring 'collateral' is always numeric
+    and the totals row has the 'collateral' field as well.
+    """
     # 1) Read raw positions from DB
     positions_data = data_locker.read_positions()
 
     # 2) Fill them with newest price if missing
     positions_data = fill_positions_with_latest_price(positions_data)
 
-    # 3) Enrich each position (PnL, leverage, etc.) via calc_services
+    # 3) Enrich each position (PnL, leverage, etc.) via aggregator
     updated_positions = calc_services.aggregator_positions(positions_data, DB_PATH)
 
-    # 4) Compute overall totals & averages
-    totals_dict = calc_services.calculate_totals(updated_positions)
-    # This returns something like:
-    # {
-    #   "total_size":  ...,
-    #   "total_value": ...,
-    #   "total_collateral": ...,
-    #   "avg_leverage": ...,
-    #   "avg_travel_percent": ...,
-    #   "avg_heat_index": ...
-    # }
+    # 4) Attach each wallet (optional, only if you have wallet logic)
+    for pos in updated_positions:
+        # Ensure collateral is always a float, defaulting to 0.0 if missing/None
+        pos["collateral"] = float(pos.get("collateral") or 0.0)
 
-    # 5) Build a 'TOTALS' row if your template expects it in the same table
+        wallet_name = pos.get("wallet_name")
+        if wallet_name:
+            w = data_locker.get_wallet_by_name(wallet_name)
+            pos["wallet"] = w
+        else:
+            pos["wallet"] = None
+
+    # 5) Compute overall totals
+    totals_dict = calc_services.calculate_totals(updated_positions)
+
+    # 6) Build a 'TOTALS' row (so it's in the main table)
     total_row = {
+        "id": "TOTALS_ROW",            # or None, if you prefer
         "asset_type": "TOTALS",
         "position_type": "",
-        "leverage": totals_dict["avg_leverage"],
-        "collateral": totals_dict["total_collateral"],
-        "size": totals_dict["total_size"],
-        "entry_price": 0.0,
-        "mark_price": 0.0,
+        # Make sure we set 'collateral' to something numeric
+        "collateral": float(totals_dict.get("total_collateral", 0.0)),
+        "size": float(totals_dict.get("total_size", 0.0)),
+        "value": float(totals_dict.get("total_value", 0.0)),
+        "leverage": float(totals_dict.get("avg_leverage", 0.0)),
+        "current_travel_percent": float(totals_dict.get("avg_travel_percent", 0.0)),
+        "heat_index": float(totals_dict.get("avg_heat_index", 0.0)),
+        # Provide placeholders so no key is undefined:
         "liquidation_price": 0.0,
-        "value": totals_dict["total_value"],
-        "current_travel_percent": 0.0,
-        "heat_index": 0.0,
-        "liquidation_distance": 0.0  # <-- add this
+        "liquidation_distance": 0.0,
+        "mark_price": 0.0,
+        "entry_price": 0.0,
+        "wallet": None
     }
-
     updated_positions.append(total_row)
 
-    # 6) Pass both the updated positions (with the last row = 'TOTALS')
-    #    and the separate totals_dict if you want to display them differently
-    return render_template("positions.html",
-                           positions=updated_positions,
-                           totals=totals_dict)
-
-
+    # 7) Render template
+    return render_template(
+        "positions.html",
+        positions=updated_positions,
+        totals=totals_dict
+    )
 
 def aggregator_positions_dict(positions: List[dict]) -> dict:
     total_collateral = 0.0
