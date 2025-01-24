@@ -5,9 +5,13 @@
   body {
     background-color: #a9c6e8;
   }
-  /* Light green header (same as table header: #e5ffe5) */
+  /* Light green header (old color: #e5ffe5) => replaced with #e5d5ff => now #0066cc
+     We'll keep the old code commented for reference. */
   .header-light-green {
-    background-color: #e5ffe5 !important;
+    /* background-color: #e5ffe5 !important; old color */
+    /* background-color: #e5d5ff !important; replaced pastel purple */
+    background-color: #0066cc !important; /* new requested color */
+    color: #ffffff !important;           /* white text in header */
   }
   /* Light grey body (#eeeeee) */
   .body-light-grey {
@@ -24,11 +28,15 @@
   <div class="card-body p-0">
     <style>
       thead th {
-        background-color: #e5ffe5 !important;
+        /* background-color: #e5d5ff !important; old pastel purple */
+        background-color: #0066cc !important; /* new requested color */
+        color: #ffffff !important;           /* white text */
         border: 2px solid #ccc;
       }
       tfoot td {
-        background-color: #e5ffe5 !important;
+        /* background-color: #e5d5ff !important; old pastel purple */
+        background-color: #0066cc !important; /* new requested color */
+        color: #ffffff !important;           /* white text */
         border: 2px solid #ccc;
         font-weight: bold;
       }
@@ -42,6 +50,7 @@
         text-align: center;
         vertical-align: middle;
         padding: 8px;
+        font-size: 1.2rem; /* from previous update */
       }
     </style>
 
@@ -57,7 +66,6 @@
           <th>📉 Travel %</th>
           <th>🔥 Heat Index</th>
           <th>💧 Liq Distance</th>
-          <!-- NEW WALLET COLUMN -->
           <th>👜 Wallet</th>
           <th>Actions</th>
         </tr>
@@ -68,15 +76,15 @@
           <td>
             {% if pos.asset_type in ["BTC", "Bitcoin"] %}
               <img src="/static/images/btc_logo.png" alt="BTC"
-                   style="width:20px; height:20px; margin-right:5px;">
+                   style="width:35px; height:35px; margin-right:5px;">
             {% elif pos.asset_type in ["ETH", "Ethereum"] %}
               <img src="/static/images/eth_logo.png" alt="ETH"
-                   style="width:20px; height:20px; margin-right:5px;">
+                   style="width:35px; height:35px; margin-right:5px;">
             {% elif pos.asset_type in ["SOL", "Solana"] %}
               <img src="/static/images/sol_logo.png" alt="SOL"
-                   style="width:20px; height:20px; margin-right:5px;">
+                   style="width:35px; height:35px; margin-right:5px;">
             {% endif %}
-            {{ pos.asset_type }}
+            <!-- Removed pos.asset_type text -->
           </td>
           <td><b>{{ pos.position_type }}</b></td>
           <td class="{{ pos.collateral_status }}">
@@ -114,15 +122,12 @@
               N/A
             {% endif %}
           </td>
-          <!-- NEW WALLET CELL -->
           <td>
             {% if pos.wallet %}
               <img src="{{ pos.wallet.image_path }}"
                    alt="{{ pos.wallet.name }}"
-                   style="height:20px; margin-right:5px;">
-              <strong>{{ pos.wallet.name }}</strong>
-              <br>
-              <span>Balance: {{ "{:,.2f}".format(pos.wallet.balance) }}</span>
+                   style="width:35px; height:35px; margin-right:5px;">
+              <!-- Removed wallet name text -->
             {% else %}
               N/A
             {% endif %}
@@ -163,8 +168,10 @@
         {% endfor %}
       </tbody>
       <tfoot>
+        <!-- Keep ONLY the final row. Remove others. -->
+        <!-- The final row presumably is the one labeled 'TOTALS' -->
         <tr>
-          <td>Totals</td>
+          <td>TOTALS</td>
           <td></td>
           <td>{{ "{:,.2f}".format(totals.get("total_collateral", 0)) }}</td>
           <td>{{ "{:,.2f}".format(totals.get("total_value", 0)) }}</td>
@@ -173,7 +180,6 @@
           <td>{{ "{:,.2f}".format(totals.get("avg_travel_percent", 0)) }}%</td>
           <td>{{ "{:,.2f}".format(totals.get("avg_heat_index", 0)) }}</td>
           <td></td>
-          <!-- Wallet Column Footer -->
           <td></td>
           <td></td>
         </tr>
@@ -184,11 +190,9 @@
 
 <!-- Add/Import Card -->
 <div class="card mt-3">
-  <!-- Light green header -->
   <div class="card-header fw-bold header-light-green">
     Add New Position / Import JSON or TXT
   </div>
-  <!-- Light grey body -->
   <div class="card-body body-light-grey">
     <div class="row g-3">
       <!-- Left: Add New Position -->
