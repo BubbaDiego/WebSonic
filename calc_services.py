@@ -54,8 +54,7 @@ class CalcServices:
             position_type: str,
             entry_price: float,
             current_price: float,
-            liquidation_price: float,
-            profit_price: float
+            liquidation_price: float
     ) -> float:
         """
         Example function that calculates travel_percent for both LONG and SHORT.
@@ -73,6 +72,8 @@ class CalcServices:
 
         # Default to 0.0 so we always have something to return
         travel_percent = 0.0
+
+        profit_price = entry_price * 2
 
         if ptype == "LONG":
             if current_price < entry_price:
@@ -298,15 +299,19 @@ class CalcServices:
                 position_type,
                 entry_price,
                 current_price,
-                liquidation_price,
-                profit_price=pos.get("profit_price")
+                liquidation_price
             )
 
             # ---------------------------
             # NEW CODE HERE
             # Overwrite current_travel_percent with that newly computed value:
             # ---------------------------
-            pos["current_travel_percent"] = pos["calculate_travel_percent"]
+            pos["current_travel_percent"] = self.calculate_travel_percent(
+                position_type,
+                entry_price,
+                current_price,
+                liquidation_price
+            )
             # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
             # This is the missing link: now 'current_travel_percent' won't stay at zero!
             # ---------------------------
@@ -314,7 +319,7 @@ class CalcServices:
             print(f"[DEBUG] Normalized => type={position_type}, "
                   f"entry={entry_price}, current={current_price}, "
                   f"collat={collateral}, size={size}, "
-                  f"travel_percent={pos['calculate_travel_percent']}")
+                  f"travel_percent={pos['current_travel_percent']}")
 
             # (rest of aggregator logic)...
             # PnL, value, leverage, heat_index, etc.
@@ -345,6 +350,10 @@ class CalcServices:
         """
         Aggregates totals/averages across all positions, e.g. sum of size/value,
         average leverage, average travel percent, etc.
+
+        Weighted averages:
+          - avg_leverage = (sum of (leverage_i * size_i)) / (sum of size_i)
+          - avg_travel_percent = (sum of (travel_percent_i * size_i)) / (sum of size_i)
         """
         total_size = 0.0
         total_value = 0.0
@@ -352,7 +361,7 @@ class CalcServices:
         total_heat_index = 0.0
         heat_index_count = 0
 
-        # We'll do "weighted" sums for leverage/travel% if that makes sense
+        # We'll accumulate these so we can do weighted averages.
         weighted_leverage_sum = 0.0
         weighted_travel_percent_sum = 0.0
 
@@ -368,17 +377,25 @@ class CalcServices:
             total_value += value
             total_collateral += collateral
 
+            # Weighted sums
+            weighted_leverage_sum += (leverage * size)
+            weighted_travel_percent_sum += (travel_percent * size)
+
+            # If you want a simple average of heat_index, do it like this:
             if heat_index != 0.0:
                 total_heat_index += heat_index
                 heat_index_count += 1
 
-            weighted_leverage_sum += (leverage * size)
-            weighted_travel_percent_sum += (travel_percent * size)
+        # Weighted Averages
+        if total_size > 0:
+            avg_leverage = weighted_leverage_sum / total_size
+            avg_travel_percent = weighted_travel_percent_sum / total_size
+        else:
+            avg_leverage = 0.0
+            avg_travel_percent = 0.0
 
-        # Calculate averages
+        # Simple average for heat_index (or do a weighted approach if you prefer)
         avg_heat_index = total_heat_index / heat_index_count if heat_index_count > 0 else 0.0
-        avg_leverage = weighted_leverage_sum / total_size if total_size > 0 else 0.0
-        avg_travel_percent = weighted_travel_percent_sum / total_size if total_size > 0 else 0.0
 
         return {
             "total_size": total_size,
@@ -386,7 +403,7 @@ class CalcServices:
             "total_collateral": total_collateral,
             "avg_leverage": avg_leverage,
             "avg_travel_percent": avg_travel_percent,
-            "avg_heat_index": avg_heat_index,
+            "avg_heat_index": avg_heat_index
         }
 
     def get_color(self, value: float, metric: str) -> str:

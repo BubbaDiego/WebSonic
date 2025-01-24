@@ -29,7 +29,7 @@ from data.data_locker import DataLocker
 from calc_services import CalcServices
 from data.config import AppConfig
 from prices.price_monitor import PriceMonitor
-from alerts.alert_manager import AlertManager
+from alerts.alert_manager import AlertManagerV2
 
 app = Flask(__name__)
 app.debug = False  # or True if you prefer
@@ -53,8 +53,8 @@ config = load_config_hybrid("sonic_config.json", db_conn)
 data_locker = DataLocker(db_path=db_path)
 calc_services = CalcServices()
 
-alert_manager = AlertManager(
-    db_path="C:/WebSonic/data/mother_brain.db",
+manager = AlertManagerV2(
+    db_path=r"C:\WebSonic\data\mother_brain.db",
     poll_interval=60,
     config_path="sonic_config.json"
 )
@@ -256,19 +256,53 @@ def show_prices():
     )
 
 @app.route("/positions")
+@app.route("/positions")
 def positions():
-    # 1) read raw positions
+    # 1) Read raw positions from DB
     positions_data = data_locker.read_positions()
 
-    # 2) fill them with newest price if missing
+    # 2) Fill them with newest price if missing
     positions_data = fill_positions_with_latest_price(positions_data)
 
-    # 3) aggregator calculations
+    # 3) Enrich each position (PnL, leverage, etc.) via calc_services
     updated_positions = calc_services.aggregator_positions(positions_data, DB_PATH)
 
-    # 4) aggregator for totals
-    totals = aggregator_positions_dict(updated_positions)
-    return render_template("positions.html", positions=updated_positions, totals=totals)
+    # 4) Compute overall totals & averages
+    totals_dict = calc_services.calculate_totals(updated_positions)
+    # This returns something like:
+    # {
+    #   "total_size":  ...,
+    #   "total_value": ...,
+    #   "total_collateral": ...,
+    #   "avg_leverage": ...,
+    #   "avg_travel_percent": ...,
+    #   "avg_heat_index": ...
+    # }
+
+    # 5) Build a 'TOTALS' row if your template expects it in the same table
+    total_row = {
+        "asset_type": "TOTALS",
+        "position_type": "",
+        "leverage": totals_dict["avg_leverage"],
+        "collateral": totals_dict["total_collateral"],
+        "size": totals_dict["total_size"],
+        "entry_price": 0.0,
+        "mark_price": 0.0,
+        "liquidation_price": 0.0,
+        "value": totals_dict["total_value"],
+        "current_travel_percent": 0.0,
+        "heat_index": 0.0,
+        "liquidation_distance": 0.0  # <-- add this
+    }
+
+    updated_positions.append(total_row)
+
+    # 6) Pass both the updated positions (with the last row = 'TOTALS')
+    #    and the separate totals_dict if you want to display them differently
+    return render_template("positions.html",
+                           positions=updated_positions,
+                           totals=totals_dict)
+
 
 
 def aggregator_positions_dict(positions: List[dict]) -> dict:
