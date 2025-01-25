@@ -335,6 +335,26 @@ class DataLocker:
             self.logger.exception(f"Unexpected error during deleting position: {e}")
             raise
 
+    def read_wallets(self) -> List[dict]:
+        """
+        Returns all rows from `wallets` as a list of dicts.
+        Each dict includes fields: name, public_address, private_address, image_path, balance.
+        """
+        self._init_sqlite_if_needed()
+        self.cursor.execute("""SELECT * FROM wallets""")
+        rows = self.cursor.fetchall()
+
+        results = []
+        for row in rows:
+            results.append({
+                "name": row["name"],
+                "public_address": row["public_address"],
+                "private_address": row["private_address"],
+                "image_path": row["image_path"],
+                "balance": row["balance"]
+            })
+        return results
+
     # -------------------
     # Utility Validation
     # -------------------

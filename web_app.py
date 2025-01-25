@@ -5,6 +5,7 @@ import sqlite3
 import asyncio
 import pytz
 from datetime import datetime
+from data.data_locker import DataLocker
 import requests
 from typing import List, Dict
 from data.models import Broker
@@ -89,7 +90,7 @@ MINT_TO_ASSET = {
 ##############################
 @app.route("/")
 def index():
-    return redirect(url_for("prices"))
+    return redirect(url_for("positions"))
 
 
 # --------------------------------------------------
@@ -307,33 +308,12 @@ def positions():
         wallet_name = pos.get("wallet_name")
         if wallet_name:
             w = data_locker.get_wallet_by_name(wallet_name)
-            pos["wallet"] = w
+            pos["wallet_name"] = w
         else:
-            pos["wallet"] = None
+            pos["wallet_name"] = None
 
     # 5) Compute overall totals
     totals_dict = calc_services.calculate_totals(updated_positions)
-
-    # 6) Build a 'TOTALS' row (so it's in the main table)
-    total_row = {
-        "id": "TOTALS_ROW",            # or None, if you prefer
-        "asset_type": "TOTALS",
-        "position_type": "",
-        # Make sure we set 'collateral' to something numeric
-        "collateral": float(totals_dict.get("total_collateral", 0.0)),
-        "size": float(totals_dict.get("total_size", 0.0)),
-        "value": float(totals_dict.get("total_value", 0.0)),
-        "leverage": float(totals_dict.get("avg_leverage", 0.0)),
-        "current_travel_percent": float(totals_dict.get("avg_travel_percent", 0.0)),
-        "heat_index": float(totals_dict.get("avg_heat_index", 0.0)),
-        # Provide placeholders so no key is undefined:
-        "liquidation_price": 0.0,
-        "liquidation_distance": 0.0,
-        "mark_price": 0.0,
-        "entry_price": 0.0,
-        "wallet": None
-    }
-    updated_positions.append(total_row)
 
     # 7) Render template
     return render_template(
@@ -934,67 +914,84 @@ def map_jupiter_item_to_position(item: dict) -> Position:
 @app.route("/update-jupiter-positions", methods=["POST"])
 def update_jupiter_positions():
     """
-    Fetches fresh positions from Jupiter Perps API, maps them to our Position model,
-    and stores them in the DB.
+    Fetches fresh positions from Jupiter Perps API for ALL wallets in the 'wallets' table,
+    then maps them to our local Position model, storing them in the DB.
     """
     try:
-        # 1) CALL JUPITER
-        # You can either do a direct GET to "https://perps-api.jup.ag/v1/positions?walletAddress=xxx"
-        # or call your internal route "/jupiter-perps-proxy?walletAddress=xxx".
-        wallet_address = "6vMjsGU63evYuwwGsDHBRnKs1stALR7SYN5V57VZLXca"
-        jupiter_url = f"https://perps-api.jup.ag/v1/positions?walletAddress={wallet_address}&showTpslRequests=true"
+        # 1) Grab all wallets from DB
+        wallets_list = data_locker.read_wallets()
+        if not wallets_list:
+            app.logger.info("No wallets found in DB. Nothing to update from Jupiter.")
+            return jsonify({"message": "No wallets found in DB"}), 200
 
-        resp = requests.get(jupiter_url)
-        resp.raise_for_status()
-        data = resp.json()  # Should have "count" and "dataList"
+        total_positions_imported = 0
 
-        # 2) Extract dataList
-        data_list = data.get("dataList", [])
-        if not data_list:
-            return jsonify({"message": "No positions returned from Jupiter."}), 200
+        # 2) For each wallet, call Jupiter using its public_address
+        for w in wallets_list:
+            # Some wallets might not have a valid public_address for Jupiter Perps
+            public_addr = w.get("public_address", "").strip()
+            if not public_addr:
+                app.logger.info(f"Skipping wallet '{w['name']}' because no public_address is set.")
+                continue
 
-        # 3) MAP each item -> Position
-        new_positions = []
-        for item in data_list:
-            try:
-                # Convert epoch to datetime
-                epoch_time = float(item.get("updatedTime", 0))
-                updated_dt = datetime.fromtimestamp(epoch_time)
+            # 3) Build the Jupiter endpoint
+            jupiter_url = (
+                "https://perps-api.jup.ag/v1/positions"
+                f"?walletAddress={public_addr}"
+                "&showTpslRequests=true"
+            )
 
-                # Map the "marketMint" to asset_type
-                mint = item.get("marketMint", "")
-                asset_type = MINT_TO_ASSET.get(mint, "BTC")  # default to BTC if unknown
+            # 4) Fetch data from Jupiter
+            resp = requests.get(jupiter_url)
+            resp.raise_for_status()
+            data = resp.json()
 
-                # side: "short" or "long"
-                side = item.get("side", "short").capitalize()  # "Short" or "Long" to match your DB usage
+            data_list = data.get("dataList", [])
+            if not data_list:
+                app.logger.info(
+                    f"No positions returned for wallet {w['name']} ({public_addr})"
+                )
+                continue
 
-                # Build a new Position dictionary
-                pos_dict = {
-                    "asset_type": asset_type,
-                    "position_type": side,
-                    "entry_price": float(item.get("entryPrice", 0.0)),
-                    "liquidation_price": float(item.get("liquidationPrice", 0.0)),
-                    "collateral": float(item.get("collateral", 0.0)),
-                    "size": float(item.get("size", 0.0)),
-                    "leverage": float(item.get("leverage", 0.0)),
-                    "value": float(item.get("value", 0.0)),
-                    "last_updated": updated_dt
-                }
-                # optional: pos_dict["wallet"] = "JupiterVault" or something
+            # 5) Map each item -> Position dict
+            new_positions = []
+            for item in data_list:
+                try:
+                    epoch_time = float(item.get("updatedTime", 0))
+                    updated_dt = datetime.fromtimestamp(epoch_time)
 
-                new_positions.append(pos_dict)
-            except Exception as map_err:
-                app.logger.warning(f"Skipping item due to mapping error: {map_err}")
+                    mint = item.get("marketMint", "")
+                    asset_type = MINT_TO_ASSET.get(mint, "BTC")
+                    side = item.get("side", "short").capitalize()
 
-        # 4) STORE in DB
-        # For now, we do naive "insert new" for each
-        # If you want to detect duplicates, you’d have to define how
-        # you know two Jupiter items are the same position (maybe "positionPubkey"?).
-        for p in new_positions:
-            data_locker.create_position(p)
+                    pos_dict = {
+                        "asset_type": asset_type,
+                        "position_type": side,
+                        "entry_price": float(item.get("entryPrice", 0.0)),
+                        "liquidation_price": float(item.get("liquidationPrice", 0.0)),
+                        "collateral": float(item.get("collateral", 0.0)),
+                        "size": float(item.get("size", 0.0)),
+                        "leverage": float(item.get("leverage", 0.0)),
+                        "value": float(item.get("value", 0.0)),
+                        "last_updated": updated_dt.isoformat(),
+                        # Key part: store which wallet "owns" this position
+                        "wallet_name": w["name"],
+                    }
+
+                    new_positions.append(pos_dict)
+                except Exception as map_err:
+                    app.logger.warning(
+                        f"Skipping item for wallet {w['name']} due to mapping error: {map_err}"
+                    )
+
+            # 6) Insert the positions into DB
+            for p in new_positions:
+                data_locker.create_position(p)
+
+            total_positions_imported += len(new_positions)
 
         return jsonify({
-            "message": f"Imported {len(new_positions)} positions from Jupiter."
+            "message": f"Imported {total_positions_imported} positions from all Jupiter wallets."
         }), 200
 
     except requests.exceptions.RequestException as e:
