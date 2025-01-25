@@ -131,6 +131,27 @@ class CryptoWallet:
             f"balance={self.balance})"
         )
 
+class Broker:
+    def __init__(
+        self,
+        name: str,
+        image_path: str,
+        web_address: str,
+        total_holding: float = 0.0
+    ):
+        self.name = name
+        self.image_path = image_path
+        self.web_address = web_address
+        self.total_holding = total_holding
+
+    def __repr__(self):
+        return (
+            f"Broker(name={self.name!r}, "
+            f"image_path={self.image_path!r}, "
+            f"web_address={self.web_address!r}, "
+            f"total_holding={self.total_holding})"
+        )
+
 @field_validator('current_travel_percent', mode='after')
 def validate_travel_percent(cls, v, info):
     """

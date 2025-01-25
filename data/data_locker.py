@@ -1,6 +1,6 @@
 import sqlite3
 import logging
-from data.models import Price, Alert, Position, AssetType, Status, CryptoWallet
+from data.models import Price, Alert, Position, AssetType, Status, CryptoWallet, Broker
 
 from typing import List, Dict, Optional
 from datetime import datetime
@@ -118,6 +118,15 @@ class DataLocker:
                             private_address TEXT,
                             image_path TEXT,
                             balance REAL DEFAULT 0.0
+                        )
+                    """)
+
+            cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS brokers (
+                            name TEXT PRIMARY KEY,
+                            image_path TEXT NOT NULL,
+                            web_address TEXT NOT NULL,
+                            total_holding REAL NOT NULL DEFAULT 0.0
                         )
                     """)
 
@@ -720,6 +729,34 @@ class DataLocker:
         ))
         conn.commit()
         conn.close()
+
+    def create_broker(self, broker: Broker):
+        self._init_sqlite_if_needed()
+        try:
+            self.cursor.execute("""
+                INSERT OR REPLACE INTO brokers (name, image_path, web_address, total_holding)
+                VALUES (?, ?, ?, ?)
+            """, (broker.name, broker.image_path, broker.web_address, broker.total_holding))
+            self.conn.commit()
+        except sqlite3.Error as e:
+            self.logger.error(f"Database error in create_broker: {e}", exc_info=True)
+            raise
+
+    def read_brokers(self) -> List[Broker]:
+        self._init_sqlite_if_needed()
+        self.cursor.execute("SELECT * FROM brokers")
+        rows = self.cursor.fetchall()
+        results = []
+        for row in rows:
+            results.append(
+                Broker(
+                    name=row["name"],
+                    image_path=row["image_path"],
+                    web_address=row["web_address"],
+                    total_holding=row["total_holding"]
+                )
+            )
+        return results
 
     def positions():
         """

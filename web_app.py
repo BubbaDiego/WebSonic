@@ -6,10 +6,11 @@ import asyncio
 import pytz
 from datetime import datetime
 from typing import List, Dict
+from data.models import Broker
 from data.hybrid_config_manager import load_config_hybrid
 
-DB_PATH = "C:/WebSonic/data/mother_brain.db"
-CONFIG_PATH = "C:/WebSonic/sonic_config.json"
+#DB_PATH = "C:/WebSonic/data/mother_brain.db"
+#CONFIG_PATH = "C:/WebSonic/sonic_config.json"
 
 from flask import (
     Flask,
@@ -271,7 +272,7 @@ def show_prices():
         recent_prices=prices_data_sorted
     )
 
-@app.route("/positions")
+
 @app.route("/positions")
 def positions():
     """
@@ -329,6 +330,13 @@ def positions():
         positions=updated_positions,
         totals=totals_dict
     )
+
+@app.route("/exchanges")
+def exchanges():
+    # If you have a DB approach:
+    brokers_data = data_locker.read_brokers()
+
+    return render_template("exchanges.html", brokers=brokers_data)
 
 def aggregator_positions_dict(positions: List[dict]) -> dict:
     total_collateral = 0.0
