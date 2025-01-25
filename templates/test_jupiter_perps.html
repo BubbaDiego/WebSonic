@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <title>Jupiter Proxy Test</title>
+  </head>
+  <body>
+    <h1>Jupiter Perps Proxy Test</h1>
+    <div>
+      <label for="walletAddress">Wallet Address:</label>
+      <input type="text" id="walletAddress" value="6vMjsGU63evYuwwGsDHBRnKs1stALR7SYN5V57VZLXca"/>
+      <button id="fetchBtn">Fetch Positions</button>
+    </div>
+    <pre id="output" style="background: #f3f3f3; padding: 1em;"></pre>
+    
+    <script>
+      document.getElementById('fetchBtn').addEventListener('click', () => {
+        const walletAddress = document.getElementById('walletAddress').value.trim();
+        // Build the query param
+        const url = `/jupiter-perps-proxy?walletAddress=${encodeURIComponent(walletAddress)}`;
+        
+        fetch(url)
+          .then((res) => {
+            if (!res.ok) {
+              throw new Error(`HTTP ${res.status} - ${res.statusText}`);
+            }
+            return res.json();
+          })
+          .then((data) => {
+            document.getElementById('output').textContent = JSON.stringify(data, null, 2);
+          })
+          .catch((err) => {
+            document.getElementById('output').textContent = `Error: ${err}`;
+          });
+      });
+    </script>
+  </body>
+</html>

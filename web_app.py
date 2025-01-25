@@ -5,6 +5,7 @@ import sqlite3
 import asyncio
 import pytz
 from datetime import datetime
+import requests
 from typing import List, Dict
 from data.models import Broker
 from data.hybrid_config_manager import load_config_hybrid
@@ -863,6 +864,48 @@ def database_viewer():
 
     conn.close()
     return render_template("database_viewer.html", db_data=db_data)
+
+
+@app.route("/jupiter-perps-proxy", methods=["GET"])
+def jupiter_perps_proxy():
+    """
+    A simple GET route that fetches the positions JSON from Jupiter's Perps API
+    and returns it to the client.
+
+    Usage example:
+      /jupiter-perps-proxy?walletAddress=YourWalletHere
+
+    If you don't specify a walletAddress, it defaults to a known test wallet.
+    """
+    # 1) Get walletAddress from query param (or default it)
+    wallet_address = request.args.get("walletAddress", "6vMjsGU63evYuwwGsDHBRnKs1stALR7SYN5V57VZLXca")
+
+    # 2) Construct Jupiter's API URL
+    jupiter_url = f"https://perps-api.jup.ag/v1/positions?walletAddress={wallet_address}&showTpslRequests=true"
+
+    try:
+        # 3) Make the request to Jupiter
+        response = requests.get(jupiter_url)
+        response.raise_for_status()  # Raise HTTPError if bad status
+        data = response.json()
+
+        # 4) Return the fetched data as JSON
+        return jsonify(data), 200
+
+    except requests.exceptions.HTTPError as http_err:
+        app.logger.error(f"HTTP error while fetching Jupiter positions: {http_err}")
+        return jsonify({"error": f"HTTP {response.status_code}: {response.text}"}), 500
+    except Exception as e:
+        app.logger.error(f"Error fetching Jupiter positions: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/test-jupiter-perps-proxy")
+def test_jupiter_perps_proxy():
+    """
+    Renders a simple page with a button to fetch Jupiter data
+    from our Flask proxy.
+    """
+    return render_template("test_jupiter_perps.html")
 
 # --------------------------------------------------
 # Main
