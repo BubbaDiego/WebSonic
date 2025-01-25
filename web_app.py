@@ -48,6 +48,7 @@ prices_bp = Blueprint('prices_bp', __name__)
 # ----------------------------------------------
 db_path = os.path.abspath("data/mother_brain.db")
 DB_PATH = "data/mother_brain.db"
+CONFIG_PATH = r"C:\WebSonic\sonic_config.json"
 print(f"Using DB at: {db_path}")
 
 # At startup:
@@ -1009,6 +1010,13 @@ def test_jupiter_perps_proxy():
     """
     return render_template("test_jupiter_perps.html")
 
+@app.route("/console-test")
+def console_test():
+    return render_template("console_test.html")
+
+@app.route("/test-jupiter-swap", methods=["GET"])
+def test_jupiter_swap():
+    return render_template("test_jupiter_swap.html")
 # --------------------------------------------------
 # Main
 # --------------------------------------------------

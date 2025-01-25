@@ -679,6 +679,37 @@ class DataLocker:
             self.logger.exception(f"Unexpected error in delete_position: {e}")
             raise
 
+
+    def read_wallets(self) -> List[dict]:
+        """
+        Returns all rows from `wallets` as a list of dicts.
+        Each dict includes fields: name, public_address, private_address, image_path, balance.
+        """
+        self._init_sqlite_if_needed()
+        self.cursor.execute("""SELECT * FROM wallets""")
+        rows = self.cursor.fetchall()
+
+        results = []
+        for row in rows:
+            results.append({
+                "name": row["name"],
+                "public_address": row["public_address"],
+                "private_address": row["private_address"],
+                "image_path": row["image_path"],
+                "balance": row["balance"]
+            })
+        return results
+
+    def delete_positions_for_wallet(self, wallet_name: str):
+        """
+        Removes all rows in 'positions' for the specified wallet_name.
+        """
+        self._init_sqlite_if_needed()
+        self.logger.info(f"Deleting old positions for wallet: {wallet_name}")
+
+        self.cursor.execute("DELETE FROM positions WHERE wallet_name = ?", (wallet_name,))
+        self.conn.commit()
+
     def update_position(self, position_id: str, size: float, collateral: float):
         """
         Updates the given position in the database with new size and collateral.
@@ -855,25 +886,20 @@ class DataLocker:
             "balance": row["balance"]
         }
 
-    def read_wallets(self) -> List[dict]:
-        """
-        Returns all rows from `wallets` as a list of dicts.
-        Each dict includes fields: name, public_address, private_address, image_path, balance.
-        """
-        self._init_sqlite_if_needed()
-        self.cursor.execute("""SELECT * FROM wallets""")
-        rows = self.cursor.fetchall()
 
-        results = []
-        for row in rows:
-            results.append({
-                "name": row["name"],
-                "public_address": row["public_address"],
-                "private_address": row["private_address"],
-                "image_path": row["image_path"],
-                "balance": row["balance"]
-            })
-        return results
+
+
+    def _delete_positions_for_wallet(wallet_name: str):
+        """
+        Removes all rows in 'positions' for the specified wallet_name.
+        """
+        app.logger.info(f"Deleting old positions for wallet: {wallet_name}")
+
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM positions WHERE wallet_name = ?", (wallet_name,))
+        conn.commit()
+        conn.close()
 
     def update_current_travel_percent(self, pos: dict, calc_services: CalcServices):
         """
