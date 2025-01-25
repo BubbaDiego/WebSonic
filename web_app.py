@@ -61,6 +61,16 @@ manager = AlertManagerV2(
     config_path="sonic_config.json"
 )
 
+
+MINT_TO_ASSET = {
+    # Example addresses. You might have different ones in Jupiter:
+    "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh": "BTC",
+    "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs": "ETH",
+    "So11111111111111111111111111111111111111112": "SOL"
+    # Add more if needed
+}
+
+
 # --------------------------------------------------
 # Root route -> Redirect to /positions
 # --------------------------------------------------
@@ -897,6 +907,101 @@ def jupiter_perps_proxy():
         return jsonify({"error": f"HTTP {response.status_code}: {response.text}"}), 500
     except Exception as e:
         app.logger.error(f"Error fetching Jupiter positions: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+def map_jupiter_item_to_position(item: dict) -> Position:
+    asset_type = MINT_TO_ASSET.get(item["marketMint"], AssetType.BTC)
+    pos_type = item["side"].lower()  # "short" or "long"
+
+    # Convert epoch to datetime
+    updated_dt = datetime.fromtimestamp(int(item["updatedTime"]))
+
+    return Position(
+        asset_type=asset_type,
+        position_type=pos_type,
+        entry_price=float(item["entryPrice"]),
+        liquidation_price=float(item["liquidationPrice"]),
+        collateral=float(item["collateral"]),
+        size=float(item["size"]),
+        leverage=float(item["leverage"]),
+        value=float(item["value"]),
+        last_updated=updated_dt
+        # wallet="someWallet" if you want
+        # or other optional fields
+    )
+
+
+@app.route("/update-jupiter-positions", methods=["POST"])
+def update_jupiter_positions():
+    """
+    Fetches fresh positions from Jupiter Perps API, maps them to our Position model,
+    and stores them in the DB.
+    """
+    try:
+        # 1) CALL JUPITER
+        # You can either do a direct GET to "https://perps-api.jup.ag/v1/positions?walletAddress=xxx"
+        # or call your internal route "/jupiter-perps-proxy?walletAddress=xxx".
+        wallet_address = "6vMjsGU63evYuwwGsDHBRnKs1stALR7SYN5V57VZLXca"
+        jupiter_url = f"https://perps-api.jup.ag/v1/positions?walletAddress={wallet_address}&showTpslRequests=true"
+
+        resp = requests.get(jupiter_url)
+        resp.raise_for_status()
+        data = resp.json()  # Should have "count" and "dataList"
+
+        # 2) Extract dataList
+        data_list = data.get("dataList", [])
+        if not data_list:
+            return jsonify({"message": "No positions returned from Jupiter."}), 200
+
+        # 3) MAP each item -> Position
+        new_positions = []
+        for item in data_list:
+            try:
+                # Convert epoch to datetime
+                epoch_time = float(item.get("updatedTime", 0))
+                updated_dt = datetime.fromtimestamp(epoch_time)
+
+                # Map the "marketMint" to asset_type
+                mint = item.get("marketMint", "")
+                asset_type = MINT_TO_ASSET.get(mint, "BTC")  # default to BTC if unknown
+
+                # side: "short" or "long"
+                side = item.get("side", "short").capitalize()  # "Short" or "Long" to match your DB usage
+
+                # Build a new Position dictionary
+                pos_dict = {
+                    "asset_type": asset_type,
+                    "position_type": side,
+                    "entry_price": float(item.get("entryPrice", 0.0)),
+                    "liquidation_price": float(item.get("liquidationPrice", 0.0)),
+                    "collateral": float(item.get("collateral", 0.0)),
+                    "size": float(item.get("size", 0.0)),
+                    "leverage": float(item.get("leverage", 0.0)),
+                    "value": float(item.get("value", 0.0)),
+                    "last_updated": updated_dt
+                }
+                # optional: pos_dict["wallet"] = "JupiterVault" or something
+
+                new_positions.append(pos_dict)
+            except Exception as map_err:
+                app.logger.warning(f"Skipping item due to mapping error: {map_err}")
+
+        # 4) STORE in DB
+        # For now, we do naive "insert new" for each
+        # If you want to detect duplicates, you’d have to define how
+        # you know two Jupiter items are the same position (maybe "positionPubkey"?).
+        for p in new_positions:
+            data_locker.create_position(p)
+
+        return jsonify({
+            "message": f"Imported {len(new_positions)} positions from Jupiter."
+        }), 200
+
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"Error fetching from Jupiter: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+    except Exception as e:
+        app.logger.error(f"Unexpected error in update_jupiter_positions: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 @app.route("/test-jupiter-perps-proxy")

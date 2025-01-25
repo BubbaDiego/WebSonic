@@ -261,7 +261,7 @@
         </form>
       </div>
 
-      <!-- Right: Upload & Delete All -->
+      <!-- Right: Upload, Delete All, and Update Jupiter -->
       <div class="col-md-6">
         <label for="file-input" class="form-label fw-bold">
           Import from JSON or TXT <span class="ms-1">📄</span>
@@ -285,6 +285,12 @@
           <button type="button" id="upload-btn" class="btn btn-success" disabled>
             Upload Positions
           </button>
+
+          <!-- NEW: Update from Jupiter Button -->
+          <button type="button" id="update-jupiter-btn" class="btn btn-info">
+            Update from Jupiter
+          </button>
+
           <form method="POST" action="/delete-all-positions" style="display:inline;">
             <button type="submit" class="btn btn-danger">Delete All</button>
           </form>
@@ -413,6 +419,35 @@ uploadBtn.addEventListener('click', () => {
     });
 });
 
+// NEW: Update Jupiter positions
+document.getElementById('update-jupiter-btn').addEventListener('click', () => {
+  if (!confirm("Fetch fresh positions from Jupiter Perps?")) {
+    return;
+  }
+  fetch('/update-jupiter-positions', {
+    method: 'POST'
+  })
+  .then(async (response) => {
+    if (!response.ok) {
+      let msg;
+      try {
+        const data = await response.json();
+        msg = data.error || JSON.stringify(data);
+      } catch (e) {
+        msg = "unknown error";
+      }
+      alert(`Failed to update from Jupiter.\n${msg}`);
+    } else {
+      alert('Jupiter positions updated successfully!');
+      location.reload();
+    }
+  })
+  .catch((err) => {
+    console.error("Update Jupiter fetch error:", err);
+    alert(`An error occurred: ${err}`);
+  });
+});
+
 // Check Alerts (New)
 document.getElementById("checkAlertsBtn").addEventListener("click", function() {
   fetch("/manual-check-alerts", { method: "POST" })
@@ -429,4 +464,5 @@ document.getElementById("checkAlertsBtn").addEventListener("click", function() {
     });
 });
 </script>
+
 {% endblock content %}
