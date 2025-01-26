@@ -581,18 +581,6 @@ def update_prices():
 
 
 # --------------------------------------------------
-# Alerts
-# --------------------------------------------------
-@app.route("/manual-check-alerts", methods=["POST"])
-def manual_check_alerts():
-    try:
-        alert_manager.check_alerts()
-        return jsonify({"status": "success", "message":"Alerts checked."}), 200
-    except Exception as e:
-        return jsonify({"status":"error", "message":str(e)}), 500
-
-
-# --------------------------------------------------
 # Alert / System Config
 # --------------------------------------------------
 @app.route("/alert-options", methods=["GET", "POST"])
