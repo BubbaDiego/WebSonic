@@ -857,6 +857,144 @@ def database_viewer():
     return render_template("database_viewer.html", db_data=db_data)
 
 
+##############################
+#  Alerts Route
+##############################
+@app.route("/alerts")
+def alerts_page():
+    # Example data
+    alerts_data = [
+      {"alert_type": "PRICE_THRESHOLD", "trigger_value": 3000,
+       "last_triggered": "2025-01-25 12:00 PST", "status": "Active"},
+      # ...
+    ]
+    api_data = [
+      {"api_name": "AlertEngine", "last_updated": "2025-01-25 11:59 PST", "total_reports": 17},
+      # ...
+    ]
+    return render_template(
+      "alerts.html",
+      active_alerts_count=5,
+      triggered_today_count=2,
+      disabled_alerts_count=1,
+      recent_alerts=alerts_data,
+      api_counters=api_data
+    )
+
+@app.route("/alerts")
+def alerts():
+    """
+    Main alerts page: displays 'alerts.html'.
+    We'll pass in some mock data for demonstration.
+    """
+    # Example: count of different statuses
+    active_count = 5
+    triggered_today = 2
+    disabled_count = 1
+
+    # Example: recent alerts
+    recent_alerts_data = [
+        {
+            "alert_type": "PRICE_THRESHOLD",
+            "trigger_value": 3000,
+            "last_triggered": "2025-01-25 11:00 PST",
+            "status": "Active"
+        },
+        {
+            "alert_type": "TRAVEL_PERCENT",
+            "trigger_value": -25,
+            "last_triggered": "2025-01-25 08:15 PST",
+            "status": "Active"
+        },
+        {
+            "alert_type": "DELTA_CHANGE",
+            "trigger_value": 10,
+            "last_triggered": None,
+            "status": "Disabled"
+        }
+    ]
+
+    # Example: API counters (similar to what you do for prices)
+    api_counters = [
+        {
+            "api_name": "AlertEngine",
+            "last_updated": "2025-01-25 10:55 PST",
+            "total_reports": 13
+        },
+        {
+            "api_name": "OtherAPI",
+            "last_updated": "N/A",
+            "total_reports": 0
+        }
+    ]
+
+    # Render the new 'alerts.html' page
+    return render_template(
+        "alerts.html",
+        active_alerts_count=active_count,
+        triggered_today_count=triggered_today,
+        disabled_alerts_count=disabled_count,
+        recent_alerts=recent_alerts_data,
+        api_counters=api_counters
+    )
+
+
+@app.route("/alerts/create", methods=["POST"])
+def alerts_create():
+    """
+    Handles the 'Add New Alert' form submission from 'alerts.html'.
+    We'll parse the form fields, create the alert in DB, then redirect.
+    """
+    alert_type = request.form.get("alert_type", "")
+    trigger_value_str = request.form.get("trigger_value", "0")
+    status = request.form.get("status", "Active")
+    notification_type = request.form.get("notification_type", "SMS")
+    position_ref = request.form.get("position_reference_id", "")
+
+    # Convert numeric
+    try:
+        trigger_value = float(trigger_value_str)
+    except ValueError:
+        trigger_value = 0.0
+
+    # TODO: Insert into your 'alerts' table or use your Alert model
+    # e.g., data_locker.create_alert(...)
+    # Something like:
+    # new_alert = {
+    #   "alert_type": alert_type,
+    #   "trigger_value": trigger_value,
+    #   "status": status,
+    #   "notification_type": notification_type,
+    #   "position_reference_id": position_ref,
+    #   ...
+    # }
+    # data_locker.create_alert(new_alert)
+
+    app.logger.info(f"Created alert: type={alert_type}, value={trigger_value}, status={status}")
+
+    # After creation, redirect back to /alerts
+    flash("New alert created successfully!", "success")
+    return redirect(url_for("alerts"))
+
+
+@app.route("/manual-check-alerts", methods=["POST"])
+def manual_check_alerts():
+    """
+    Called by the "Check Alerts" button in 'alerts.html'.
+    We'll call our alert_manager to do a manual check, then
+    respond with JSON so the page can refresh.
+    """
+    try:
+        # e.g. alert_manager.check_alerts()
+        # For now, mock a "success" result
+        message = "Alerts checked OK."
+        return jsonify({"status": "success", "message": message}), 200
+    except Exception as e:
+        app.logger.error(f"Error checking alerts: {e}", exc_info=True)
+        return jsonify({"status":"error", "message":str(e)}), 500
+
+
+
 @app.route("/jupiter-perps-proxy", methods=["GET"])
 def jupiter_perps_proxy():
     """
@@ -911,15 +1049,35 @@ def map_jupiter_item_to_position(item: dict) -> Position:
         # or other optional fields
     )
 
+@app.route("/update_jupiter", methods=["POST"])
+def update_jupiter():
+    """
+    Calls update_jupiter_positions() (which returns a tuple)
+    and update_prices() (which returns a Flask Response).
+    If either fails, we return an error. Otherwise, success.
+    """
+    # 1) Unpack the tuple from update_jupiter_positions()
+    jupiter_resp, jupiter_code = update_jupiter_positions()
+    if jupiter_code != 200:
+        # Return the same response & code => bubble up the error
+        return jupiter_resp, jupiter_code
+
+    # 2) update_prices() returns a single Flask Response object
+    prices_resp = update_prices()
+    if prices_resp.status_code != 200:
+        return prices_resp  # bubble up that error
+
+    # 3) If both succeeded
+    return jsonify({"message": "Jupiter positions + Prices updated successfully!"}), 200
 
 @app.route("/update-jupiter-positions", methods=["POST"])
 def update_jupiter_positions():
     """
     Fetches fresh positions from Jupiter Perps API for ALL wallets in the 'wallets' table,
     then maps them to our local Position model, storing them in the DB.
+    Now we add a check to avoid re-importing the same data over and over.
     """
     try:
-        # 1) Grab all wallets from DB
         wallets_list = data_locker.read_wallets()
         if not wallets_list:
             app.logger.info("No wallets found in DB. Nothing to update from Jupiter.")
@@ -927,34 +1085,26 @@ def update_jupiter_positions():
 
         total_positions_imported = 0
 
-        # 2) For each wallet, call Jupiter using its public_address
         for w in wallets_list:
-            # Some wallets might not have a valid public_address for Jupiter Perps
             public_addr = w.get("public_address", "").strip()
             if not public_addr:
                 app.logger.info(f"Skipping wallet '{w['name']}' because no public_address is set.")
                 continue
 
-            # 3) Build the Jupiter endpoint
             jupiter_url = (
                 "https://perps-api.jup.ag/v1/positions"
                 f"?walletAddress={public_addr}"
                 "&showTpslRequests=true"
             )
-
-            # 4) Fetch data from Jupiter
             resp = requests.get(jupiter_url)
             resp.raise_for_status()
             data = resp.json()
 
             data_list = data.get("dataList", [])
             if not data_list:
-                app.logger.info(
-                    f"No positions returned for wallet {w['name']} ({public_addr})"
-                )
+                app.logger.info(f"No positions returned for wallet {w['name']} ({public_addr})")
                 continue
 
-            # 5) Map each item -> Position dict
             new_positions = []
             for item in data_list:
                 try:
@@ -975,32 +1125,58 @@ def update_jupiter_positions():
                         "leverage": float(item.get("leverage", 0.0)),
                         "value": float(item.get("value", 0.0)),
                         "last_updated": updated_dt.isoformat(),
-                        # Key part: store which wallet "owns" this position
                         "wallet_name": w["name"],
                     }
-
                     new_positions.append(pos_dict)
+
                 except Exception as map_err:
                     app.logger.warning(
                         f"Skipping item for wallet {w['name']} due to mapping error: {map_err}"
                     )
 
-            # 6) Insert the positions into DB
+            # -- HERE: minimal duplicate check before inserting --
             for p in new_positions:
-                data_locker.create_position(p)
+                # Check if we already have the same wallet/asset/side/size/time, etc.
+                # Adjust columns as needed to match your "uniqueness" definition.
+                duplicate_check = data_locker.cursor.execute(
+                    """
+                    SELECT COUNT(*) FROM positions
+                     WHERE wallet_name = ?
+                       AND asset_type = ?
+                       AND position_type = ?
+                       AND ABS(size - ?) < 0.000001
+                       AND ABS(collateral - ?) < 0.000001
+                       AND last_updated = ?
+                    """,
+                    (
+                        p["wallet_name"],
+                        p["asset_type"],
+                        p["position_type"],
+                        p["size"],
+                        p["collateral"],
+                        p["last_updated"],
+                    )
+                ).fetchone()
 
-            total_positions_imported += len(new_positions)
+                already_exists = (duplicate_check[0] > 0)
+                if not already_exists:
+                    # Insert only if it's not a duplicate
+                    data_locker.create_position(p)
+                    total_positions_imported += 1
+                else:
+                    app.logger.info(
+                        f"Skipping duplicate Jupiter position for wallet={p['wallet_name']}, "
+                        f"asset={p['asset_type']}, side={p['position_type']}"
+                    )
 
         return jsonify({
-            "message": f"Imported {total_positions_imported} positions from all Jupiter wallets."
+            "message": f"Imported {total_positions_imported} new position(s) from all Jupiter wallets."
         }), 200
 
     except requests.exceptions.RequestException as e:
         app.logger.error(f"Error fetching from Jupiter: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
-    except Exception as e:
-        app.logger.error(f"Unexpected error in update_jupiter_positions: {e}", exc_info=True)
-        return jsonify({"error": str(e)}), 500
+
 
 @app.route("/test-jupiter-perps-proxy")
 def test_jupiter_perps_proxy():

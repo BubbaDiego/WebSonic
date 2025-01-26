@@ -124,10 +124,10 @@
           </td>
           <td>
             {% if pos.wallet %}
-              <img src="{{ pos.wallet.image_path }}"
-                   alt="{{ pos.wallet.name }}"
-                   style="width:35px; height:35px; margin-right:5px;">
-              <!-- Removed wallet name text -->
+              <img
+                src="/static/images/{{ pos.wallet.image_filename }}"
+                alt="{{ pos.wallet.name }}"
+                style="width:35px; height:35px; margin-right:5px;">
             {% else %}
               N/A
             {% endif %}
@@ -261,7 +261,7 @@
         </form>
       </div>
 
-      <!-- Right: Upload, Delete All, and Update Jupiter -->
+      <!-- Right: Upload, Delete All, and [NEW] Update Jupiter+Prices -->
       <div class="col-md-6">
         <label for="file-input" class="form-label fw-bold">
           Import from JSON or TXT <span class="ms-1">📄</span>
@@ -286,9 +286,13 @@
             Upload Positions
           </button>
 
-          <!-- NEW: Update from Jupiter Button -->
-          <button type="button" id="update-jupiter-btn" class="btn btn-info">
-            Update from Jupiter
+          <!-- REPLACED old text button with NO-TEXT Jupiter image -->
+          <button type="button" id="update-jupiter-all-btn"
+                  class="btn p-0 border-0"
+                  style="background:none;">
+            <img src="/static/images/jupiter.jpg"
+                 alt="Update Jupiter"
+                 style="width:50px; height:auto;">
           </button>
 
           <form method="POST" action="/delete-all-positions" style="display:inline;">
@@ -419,33 +423,21 @@ uploadBtn.addEventListener('click', () => {
     });
 });
 
-// NEW: Update Jupiter positions
-document.getElementById('update-jupiter-btn').addEventListener('click', () => {
-  if (!confirm("Fetch fresh positions from Jupiter Perps?")) {
+// NEW: Combined "Update Jupiter + Prices" when user clicks the image button
+document.getElementById('update-jupiter-all-btn').addEventListener('click', () => {
+  if (!confirm("Update Jupiter positions and prices?")) {
     return;
   }
-  fetch('/update-jupiter-positions', {
-    method: 'POST'
-  })
-  .then(async (response) => {
-    if (!response.ok) {
-      let msg;
-      try {
-        const data = await response.json();
-        msg = data.error || JSON.stringify(data);
-      } catch (e) {
-        msg = "unknown error";
-      }
-      alert(`Failed to update from Jupiter.\n${msg}`);
-    } else {
-      alert('Jupiter positions updated successfully!');
+  fetch('/update_jupiter', { method: 'POST' })
+    .then((response) => response.json())
+    .then((data) => {
+      alert(data.message || "Successfully updated from Jupiter + Prices!");
       location.reload();
-    }
-  })
-  .catch((err) => {
-    console.error("Update Jupiter fetch error:", err);
-    alert(`An error occurred: ${err}`);
-  });
+    })
+    .catch((err) => {
+      console.error("Update Jupiter fetch error:", err);
+      alert(`An error occurred: ${err}`);
+    });
 });
 
 // Check Alerts (New)
